@@ -1782,3 +1782,16 @@ def test_without_the_shield_a_cancel_scope_stops_the_cleanup(tmp_path, monkeypat
     assert run_in_cancel_scope(fake, lambda: execute_scenario(value, cfg, client=fake)) is True
     assert report_for(cfg)['restoration_error'].startswith('CancelledError')
     assert guard_for(cfg)['restore_required'] is True
+
+
+def test_meitou_setup_ignores_the_configured_autosave_option_but_not_the_effective_state():
+    from oracle_setup import _Block
+    block = _Block(None, setup_scenario(), '.', None, None)
+    block.target = 'meitou'
+    assert not block.autosave_on(dict(autosave_enabled=False, autosave_configured=True))
+    assert block.autosave_on(dict(autosave_enabled=True, autosave_configured=False))
+    assert block.autosave_on(dict(autosave_enabled=None, autosave_configured=False))
+    block.target = 'original'
+    assert block.autosave_on(dict(autosave_enabled=False, autosave_configured=True))
+    assert block.autosave_on(dict(autosave_enabled=False, autosave_configured=None))
+    assert not block.autosave_on(dict(autosave_enabled=False, autosave_configured=False))
