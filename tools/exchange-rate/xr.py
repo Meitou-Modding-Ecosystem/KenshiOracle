@@ -73,7 +73,7 @@ async def read_pins(cfg, save):
     start = (await session.call('get_clock'))['elapsed_seconds']
     await session.until(start + SETTLE_CALENDAR_SECONDS)
     after, _ = await session.dump()
-    manifest = await asyncio.to_thread(read_saved_origins, session.source_root(ping), save)
+    manifest = await asyncio.to_thread(read_saved_origins, session.source_root(ping, save), save)
     return player_row(before)['position'], player_row(after)['position'], manifest['fingerprint']
 
 
@@ -91,6 +91,8 @@ def write_entry(profile_path, entry):
 
 def pin(args):
     cfg = target_cfg(args.config)
+    if cfg.get('startup_save'):
+        raise SystemExit('set "startup_save": null in the Meitou config: the supervisor would load the save again mid-pin')
     before, after, fingerprint = asyncio.run(read_pins(cfg, args.save))
     moved = math.dist((before[0], before[2]), (after[0], after[2]))
     if moved > 0.0005:

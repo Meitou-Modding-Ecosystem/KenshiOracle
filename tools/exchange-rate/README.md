@@ -50,11 +50,12 @@ The commands assume both clones live in `C:\Users\<you>\source\repos`; change th
    ```
    In `config.meitou.json`, point `executable`, `working_directory`, `game_install`, `log` and `dump_directory`
    at your build and install (the exe is under `bin\Release\net11.0\`), and set `"state_schema": "0.6"` and
-   `"startup_save": "oracle-arena"`. Paths in it are relative to `config.meitou.json` itself.
+   `"startup_save": null`. Paths in it are relative to `config.meitou.json` itself.
 4. **Arena save.** In MeitouClient (not under the watchdog), start a one-character game, walk to flat open
    ground at least 1500 units from any town, Dust Bandits or Shek, stop, and save as `oracle-arena`. Leave code
-   mods such as Rivalry Core out of the mod list: their parties would join the fight. Then copy the save to
-   the folder the oracle adapter loads from (re-copy it whenever you re-save):
+   mods such as Rivalry Core out of the mod list: their parties would join the fight. With an engine build
+   older than adapter 0.14.1, also copy the save to the original's save folder (re-copy it whenever you
+   re-save):
    ```powershell
    Copy-Item -Recurse -Force "$env:LOCALAPPDATA\Meitou\save\oracle-arena" "$env:LOCALAPPDATA\kenshi\save\"
    ```
@@ -63,7 +64,7 @@ The commands assume both clones live in `C:\Users\<you>\source\repos`; change th
    cd C:\Users\<you>\source\repos\KenshiOracle
    & .\.venv\Scripts\python.exe -m launcher.meitou_watchdog --config config.meitou.json
    ```
-   Once the save has loaded, in a second terminal:
+   Once the main menu shows, in a second terminal:
    ```powershell
    cd C:\Users\<you>\source\repos\KenshiOracle
    & .\.venv\Scripts\python.exe tools\exchange-rate\xr.py pin --config config.json

@@ -187,9 +187,17 @@ class OracleSession:
         self.schema_parameter = any(v in supported for v in STATE_SCHEMA_VERSIONS[1:])
         return result
 
-    def source_root(self, status):
-        """The save folder root that the probe reports, resolved like the game resolves it."""
-        native_root = status.get('save_root')
+    def source_root(self, status, name=None):
+        """The save folder root that the probe reports, resolved like the game resolves it.
+
+        A MeitouClient adapter from 0.14.1 also reports save_roots, the folders a named load looks in, in order
+        (Meitou's own saves, then the original's); the save comes from the first that holds name/quick.save.
+        """
+        roots = status.get('save_roots')
+        if name is not None and type(roots) is list and roots and all(type(root) is str and root for root in roots):
+            native_root = next((root for root in roots if (Path(root) / name / 'quick.save').is_file()), roots[0])
+        else:
+            native_root = status.get('save_root')
         if type(native_root) is not str or not native_root:
             raise ScenarioError('Probe has no authoritative save_root for saved identities')
         source_root = Path(native_root)
@@ -231,7 +239,7 @@ class OracleSession:
         manifest = None
         source_root = None
         if before.get('saved_origins_required') is True or meitou:
-            source_root = self.source_root(before)
+            source_root = self.source_root(before, name)
             try:
                 manifest = await bounded(lambda: asyncio.to_thread(read_saved_origins, source_root, name),
                                          'reading saved identities')
