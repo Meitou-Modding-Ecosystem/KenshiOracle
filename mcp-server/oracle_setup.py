@@ -26,6 +26,8 @@ from probe import ProbeError
 CAPABILITY = 'scene_setup'
 # Loadouts and stored stats per spawned member (setup.kits; probe/adapter 0.14.0).
 KITS_CAPABILITY = 'scene_setup_kits'
+AGGRO_CAPABILITY = 'scene_setup_aggro'
+COMBAT_LOG_CAPABILITY = 'combat_log'
 SETTLE_CALENDAR_SECONDS = 33
 CENSUS_LIMIT = 100
 COMMIT_UNKNOWN = 'commit unknown'
@@ -128,6 +130,10 @@ async def prepare_setup(session, scenario, cfg, ping, fingerprint, seeds, engine
         raise ScenarioError('Probe lacks capability scene_setup; this scenario needs probe 0.11.0')
     if scenario['setup'].get('kits') and KITS_CAPABILITY not in capabilities:
         raise ScenarioError('Probe lacks capability scene_setup_kits; this scenario sets loadouts or stats')
+    if any(spawn.get('aggro') for spawn in scenario['setup']['spawns']) and AGGRO_CAPABILITY not in capabilities:
+        raise ScenarioError('Probe lacks capability scene_setup_aggro; this scenario spawns aggressive squads')
+    if scenario['setup'].get('combat_log') and COMBAT_LOG_CAPABILITY not in capabilities:
+        raise ScenarioError('Probe lacks capability combat_log; this scenario writes a combat log')
     target = ping.get('target', 'original')
     if target == 'original':
         facts = (engine_facts or {}).get('squad_size') if isinstance(engine_facts, dict) else None
@@ -399,13 +405,15 @@ class _Block:
             known = {row['id'] for row in before['reply']['characters']}
             request = dict(template_id=spawn['squad_template'], faction_id=spawn['faction_id'],
                            position=position, max_count=spawn['count'])
+            if spawn.get('aggro'):
+                request['aggro'] = True
             record = await self.command('setup_spawn_squad', request)
             mutated = True
             reply = record['reply']
             self.mutation_reply(reply)
             self.echo('setup_spawn_squad', reply, request, numbers=('position',),
                       exact=[(key, request[key]) for key in ('template_id', 'faction_id', 'max_count')]
-                      + [('permanent', False)])
+                      + [('permanent', False)] + ([('aggro', True)] if 'aggro' in request else []))
             multiplier = self.setup['preflight']['squad_size_multiplier']
             if type(reply.get('size_multiplier')) not in (int, float) or reply['size_multiplier'] != multiplier:
                 self.fail(f'spawn size_multiplier {reply.get("size_multiplier")!r} differs from {multiplier!r}')

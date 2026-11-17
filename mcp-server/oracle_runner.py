@@ -14,6 +14,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import time
 import uuid
 
@@ -842,6 +843,29 @@ async def scene_capture(session, setup, receipt):
                 census={key: census[key] for key in counts})
 
 
+async def start_combat_log(session):
+    """Starts the probe's combat log (fork extension, capability combat_log); returns its start reply."""
+    result = await session.call('combat_log', action='start', filename='combat-log-' + uuid.uuid4().hex + '.jsonl')
+    if not isinstance(result, dict) or result.get('running') is not True or not isinstance(result.get('path'), str):
+        raise ScenarioError('combat_log did not start')
+    return result
+
+
+async def stop_combat_log(session, started, folder):
+    """Stops the combat log and moves its file into the repetition folder as combat-log.jsonl."""
+    result = await session.call('combat_log', action='stop')
+    if not isinstance(result, dict) or result.get('path') != started['path']:
+        raise ScenarioError('combat_log stop did not close the log it started')
+    source = Path(result['path']).resolve()
+    try:
+        source.relative_to(Path(session.cfg['oracle_output']).resolve())
+    except ValueError as exc:
+        raise ScenarioError('Combat log is outside the configured oracle_output directory') from exc
+    destination = folder / 'combat-log.jsonl'
+    shutil.move(str(source), destination)
+    return dict(file=destination.name, hits=result.get('hits'), events=result.get('events'))
+
+
 async def verify_reference_profile(session, reference_profile):
     """Certify live settings through the profile's independent GUI/CRT validator."""
     await session.ping()
@@ -967,6 +991,10 @@ async def execute_scenario(scenario, cfg, repeat=None, client=None, reference_pr
                 if setup is not None:
                     await oracle_setup.run_setup_block(session, scenario, folder, execution,
                                                        setup_entries[index - 1], engine_facts)
+                combat_log = None
+                if setup is not None and setup.get('combat_log'):
+                    combat_log = await start_combat_log(session)
+                    execution['combat_log'] = dict(start=combat_log)
                 start = await session.call('get_clock')
                 origin = start['elapsed_seconds']
                 execution['initial_clock'] = start
@@ -1023,6 +1051,8 @@ async def execute_scenario(scenario, cfg, repeat=None, client=None, reference_pr
                         execution['checkpoints'].append(capture)
                     previous_at = at
                     session.check_deadline()
+                if combat_log is not None:
+                    execution['combat_log'].update(await stop_combat_log(session, combat_log, folder))
                 execution['status'] = 'completed'
                 write_json(folder / 'execution.json', execution)
             report['status'] = 'completed'
