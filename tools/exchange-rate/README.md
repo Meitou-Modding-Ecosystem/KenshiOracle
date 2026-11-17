@@ -53,7 +53,11 @@ The commands assume both clones live in `C:\Users\<you>\source\repos`; change th
    `"startup_save": "oracle-arena"`. Paths in it are relative to `config.meitou.json` itself.
 4. **Arena save.** In MeitouClient (not under the watchdog), start a one-character game, walk to flat open
    ground at least 1500 units from any town, Dust Bandits or Shek, stop, and save as `oracle-arena`. Leave code
-   mods such as Rivalry Core out of the mod list: their parties would join the fight.
+   mods such as Rivalry Core out of the mod list: their parties would join the fight. Then copy the save to
+   the folder the oracle adapter loads from (re-copy it whenever you re-save):
+   ```powershell
+   Copy-Item -Recurse -Force "$env:LOCALAPPDATA\Meitou\save\oracle-arena" "$env:LOCALAPPDATA\kenshi\save\"
+   ```
 5. **Pin.** Start the supervisor in its own terminal and leave it open:
    ```powershell
    cd C:\Users\<you>\source\repos\KenshiOracle
