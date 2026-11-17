@@ -1,0 +1,497 @@
+From 1c311371903c2bc5c9378685ccdd2a9d634abb55 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 02:30:29 +0000
+Subject: [PATCH 12/12] Add oracle gear and stats setup and state 0.6 equipment
+
+Scene setup kits (adapter 0.14.0, capability scene_setup_kits):
+setup_set_loadout strips a character and equips the requested weapons,
+crossbows and armour (quality, or a weapon's maker, model and level);
+setup_set_stats sets stored stats by their state 0.4 keys. State 0.6
+adds each character's equipment rows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_012iW1fC5MgMJ7rLVxjnLhym
+---
+ src/Meitou.Game/GameHost.OracleSetup.cs       | 180 +++++++++++++++++-
+ src/Meitou.Game/Oracle/OracleProtocol.cs      |   2 +-
+ src/Meitou.Game/Oracle/OracleState.cs         |  35 +++-
+ src/Meitou.Simulation/Player/PlayerSystem.cs  |   5 +
+ src/Meitou.Simulation/World.OracleSetup.cs    |  17 +-
+ tests/Meitou.Tests/Oracle/OracleSetupTests.cs |  68 ++++++-
+ tests/Meitou.Tests/Oracle/OracleStateTests.cs |   4 +-
+ 7 files changed, 289 insertions(+), 22 deletions(-)
+
+diff --git a/src/Meitou.Game/GameHost.OracleSetup.cs b/src/Meitou.Game/GameHost.OracleSetup.cs
+index fae09e7..d2c0f25 100644
+--- a/src/Meitou.Game/GameHost.OracleSetup.cs
++++ b/src/Meitou.Game/GameHost.OracleSetup.cs
+@@ -7,6 +7,7 @@ using System.Text.Json;
+ using System.Text.Json.Nodes;
+ using System.Text.RegularExpressions;
+ using Meitou.Data.Fcs;
++using Meitou.Data.Gameplay.Bodies;
+ using Meitou.Game.Oracle;
+ using Meitou.Simulation;
+ using Meitou.Simulation.Population;
+@@ -14,8 +15,8 @@ using Meitou.Simulation.Population;
+ namespace Meitou.Game;
+ 
+ /// <summary>
+-/// The oracle's scene-setup commands (KenshiOracle <c>docs/scene-setup.md</c>, adapter 0.11.0): <c>setup_info</c>, <c>setup_area_census</c>, <c>setup_spawn_squad</c>,
+-/// <c>setup_set_relation</c> and <c>setup_heal</c>. Every one but <c>setup_info</c> needs a world the oracle's own load_save finished with <c>allow_setup:true</c>; mutations
++/// The oracle's scene-setup commands (KenshiOracle <c>docs/scene-setup.md</c>, adapter 0.11.0; kits 0.14.0): <c>setup_info</c>, <c>setup_area_census</c>, <c>setup_spawn_squad</c>,
++/// <c>setup_set_relation</c>, <c>setup_heal</c>, <c>setup_set_loadout</c> and <c>setup_set_stats</c>. Every one but <c>setup_info</c> needs a world the oracle's own load_save finished with <c>allow_setup:true</c>; mutations
+ /// also need a paused world with no run_until. None saves. Heal is the F10 cheat inside a tick bracket (<see cref="World.ApplyPausedOracleDebug"/>), spawns use the same
+ /// bracket (<see cref="World.ApplyPausedOracleEdit"/>), relations the swap-aware <see cref="Meitou.Data.Gameplay.FactionRelations.Assign"/>. Replies carry exactly the
+ /// contract's keys; Meitou-only facts go to <c>engine_detail</c>.
+@@ -52,6 +53,8 @@ sealed partial class GameHost
+         "setup_spawn_squad" => OracleSpawnSquad(p),
+         "setup_set_relation" => OracleSetRelation(p),
+         "setup_heal" => OracleHeal(p),
++        "setup_set_loadout" => OracleSetLoadout(p),
++        "setup_set_stats" => OracleSetStats(p),
+         _ => null,
+     };
+ 
+@@ -369,6 +372,139 @@ sealed partial class GameHost
+         return new JsonObject { ["parts"] = parts, ["blood"] = medical.Blood, ["dead"] = medical.Dead, ["unconscious"] = medical.Unconscious };
+     }
+ 
++    // ---- loadout ----
++
++    /// <summary>
++    /// <c>setup_set_loadout</c> (scene setup 0.12.0): destroys everything the character carries but prosthetic limbs and locked-on items, then makes and
++    /// wears each requested item in order (the F10 strip and give, <see cref="DebugStripItems"/>, <see cref="DebugGiveItem"/> with Equip), so the
++    /// fighter is rebuilt from the new kit. Each requested item must then be worn; replies with the state 0.6 equipment before and after.
++    /// </summary>
++    object OracleSetLoadout(JsonElement p)
++    {
++        SetupKeys(p, "character_id", "items"); RequireOracleSetup(true);
++        string cid = SetupText(p, "character_id", 200);
++        var items = OracleLoadoutItems(SetupField(p, "items"));
++        var (id, cold) = OracleLivingCharacter(cid);
++        if (cold.Inventory is null) throw new OracleHostError("state_unavailable", "inventory unavailable");
++        foreach (var item in items) OracleCheckLoadoutItem(item);
++
++        var worldBefore = OracleWorldStamp();
++        var before = OracleState.Equipment(cold);
++        _oracleWorldMutated = true;
++        Session.World.ApplyPausedOracleDebug(new DebugStripItems(id, false) { Tick = Session.World.Tick });
++        foreach (var item in items) Session.World.ApplyPausedOracleDebug(OracleGive(id, item));
++
++        var after = OracleState.Equipment(Session.World.Characters.Cold(id.Slot));
++        if (OracleSetupPolicy.MissingFromLoadout(items.Select(i => i.ItemId), after) is { } missing)
++            throw new OracleHostError("state_unavailable", "item not equipped; reload the save: " + missing);
++
++        var result = new JsonObject
++        {
++            ["character_id"] = cid, ["before"] = before, ["after"] = after,
++            ["engine_detail"] = new JsonObject
++            {
++                ["call"] = "F10 strip (all but limbs and locked-on items, nothing dropped), then F10 give with Equip per item; CharacterAssembly.RefreshEquipment rebuilds the fighter",
++                ["grade"] = "weapon without maker/model/level: PLAYER_WEAPONS model of its quality; armour: quality and level both set to quality",
++            },
++        };
++        return OracleMutated(result, worldBefore);
++    }
++
++    /// <summary>
++    /// One requested loadout item: the record, its quality (0 to 100, default 0) and a weapon's exact maker, model and level (each optional).
++    /// </summary>
++    internal sealed record OracleLoadoutItem(string ItemId, int Quality, string? MakerId, string? ModelId, int? Level)
++    {
++        public bool HasGrade => MakerId is not null || ModelId is not null || Level is not null;
++    }
++
++    static List<OracleLoadoutItem> OracleLoadoutItems(JsonElement value)
++    {
++        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() > OracleSetupPolicy.MaximumLoadoutItems)
++            throw new ArgumentException("invalid array: items");
++
++        var items = new List<OracleLoadoutItem>();
++        foreach (var item in value.EnumerateArray()) items.Add(OracleParseLoadoutItem(item));
++        return items;
++    }
++
++    static OracleLoadoutItem OracleParseLoadoutItem(JsonElement item)
++    {
++        SetupKeys(item, "item_id", "quality", "maker_id", "model_id", "level");
++        string itemId = SetupText(item, "item_id", 128);
++        int quality = item.TryGetProperty("quality", out _) ? SetupInteger(item, "quality", 0, 100) : 0;
++        string? maker = item.TryGetProperty("maker_id", out _) ? SetupText(item, "maker_id", 128) : null;
++        string? model = item.TryGetProperty("model_id", out _) ? SetupText(item, "model_id", 128) : null;
++        int? level = item.TryGetProperty("level", out _) ? SetupInteger(item, "level", 0, 100) : null;
++        return new OracleLoadoutItem(itemId, quality, maker, model, level);
++    }
++
++    void OracleCheckLoadoutItem(OracleLoadoutItem item)
++    {
++        var db = PopData!.Db;
++        if (db.Find(item.ItemId) is not { } record) throw new OracleHostError("not_found", "item not found");
++        if (record.Type is not (FcsRecordType.Weapon or FcsRecordType.Armour or FcsRecordType.Crossbow))
++            throw new OracleHostError("invalid_request", "item is not a WEAPON, ARMOUR or CROSSBOW record");
++
++        if (!item.HasGrade) return;
++        if (record.Type == FcsRecordType.Armour)
++            throw new OracleHostError("invalid_request", "maker_id, model_id and level apply only to weapons and crossbows");
++        if (item.MakerId is not null && db.Find(item.MakerId)?.Type != FcsRecordType.WeaponManufacturer)
++            throw new OracleHostError("not_found", "weapon maker not found");
++        if (item.ModelId is not null && db.Find(item.ModelId)?.Type != FcsRecordType.MaterialSpecsWeapon)
++            throw new OracleHostError("not_found", "weapon model not found");
++    }
++
++    DebugGiveItem OracleGive(CharacterId id, OracleLoadoutItem item) => new(id, item.ItemId, 1, item.Quality)
++    {
++        Equip = true, Exact = item.HasGrade ? new DebugWeaponGrade(item.MakerId, item.ModelId, item.Level) : null, Tick = Session.World.Tick,
++    };
++
++    // ---- stats ----
++
++    /// <summary>
++    /// <c>setup_set_stats</c> (scene setup 0.12.0): sets the named stored stats (state 0.4 keys) to the given values, 0 to 100 (the F10 set stats,
++    /// <see cref="DebugSetStats"/>); replies with all 34 stats before and after.
++    /// </summary>
++    object OracleSetStats(JsonElement p)
++    {
++        SetupKeys(p, "character_id", "stats"); RequireOracleSetup(true);
++        string cid = SetupText(p, "character_id", 200);
++        var values = OracleSetupPolicy.StatValues(SetupField(p, "stats"));
++        var (id, cold) = OracleLivingCharacter(cid);
++        if (cold.Stats is null) throw new OracleHostError("state_unavailable", "stats unavailable");
++
++        var worldBefore = OracleWorldStamp();
++        var before = OracleStats(cold);
++        _oracleWorldMutated = true;
++        foreach (var (stat, value) in values)
++            Session.World.ApplyPausedOracleDebug(new DebugSetStats([id], [stat], value) { Tick = Session.World.Tick });
++
++        var result = new JsonObject
++        {
++            ["character_id"] = cid, ["before"] = before, ["after"] = OracleStats(Session.World.Characters.Cold(id.Slot)!),
++            ["engine_detail"] = new JsonObject { ["call"] = "F10 set stats per stat: the stored value, no multiplier" },
++        };
++        return OracleMutated(result, worldBefore);
++    }
++
++    static JsonObject OracleStats(CharacterCold cold)
++    {
++        var stats = new JsonObject();
++        foreach (var (key, stat) in OracleState.StatKeys) stats[key] = cold.Stats![stat];
++        return stats;
++    }
++
++    /// <summary>A loaded, living character that is not dead, by its census id; the contract's not_found and dead refusals otherwise.</summary>
++    (CharacterId Id, CharacterCold Cold) OracleLivingCharacter(string cid)
++    {
++        var table = Session.World.Characters;
++        if (!_oracleState!.TryResolveCharacter(cid, out var id) || !table.IsAlive(id) || table.Cold(id.Slot) is not { } cold)
++            throw new OracleHostError("not_found", "character is not loaded");
++        if (cold.Medical is { Dead: true }) throw new OracleHostError("invalid_request", "character is dead");
++        return (id, cold);
++    }
++
+     // ---- rows ----
+ 
+     string OracleIdentity(CharacterId id) => _oracleState!.CharacterIdentity(id) ?? throw new OracleHostError("state_unavailable", "character identity unavailable");
+@@ -440,12 +576,48 @@ sealed partial class GameHost
+ /// <summary>Pure rules of the scene-setup commands, shared with their focused tests.</summary>
+ internal static partial class OracleSetupPolicy
+ {
+-    internal const int MaximumPlayers = 64, MaximumSpawnRows = 32, MaximumRelationRows = 100;
++    internal const int MaximumPlayers = 64, MaximumSpawnRows = 32, MaximumRelationRows = 100, MaximumLoadoutItems = 16;
++
++    /// <summary>
++    /// <c>setup_set_stats</c>'s <c>stats</c>: an object of 1 to 34 state 0.4 stat keys, each a number 0 to 100; in the order given.
++    /// </summary>
++    internal static List<(StatsEnumerated Stat, float Value)> StatValues(JsonElement value)
++    {
++        if (value.ValueKind != JsonValueKind.Object) throw new ArgumentException("invalid object: stats");
++
++        var values = new List<(StatsEnumerated, float)>();
++        foreach (var entry in value.EnumerateObject())
++        {
++            int row = Array.FindIndex(OracleState.StatKeys, k => k.Key == entry.Name);
++            if (row < 0) throw new ArgumentException("unknown stat: " + entry.Name);
++            if (entry.Value.ValueKind != JsonValueKind.Number || !entry.Value.TryGetDouble(out double n) || !double.IsFinite(n) || n is < 0 or > 100)
++                throw new ArgumentException("invalid number: stats." + entry.Name);
++            values.Add((OracleState.StatKeys[row].Stat, (float)n));
++        }
++
++        return values.Count > 0 ? values : throw new ArgumentException("invalid object: stats");
++    }
++
++    /// <summary>
++    /// The first requested item id with fewer worn copies in <paramref name="equipment"/> (state 0.6 rows) than requested; null when all are worn.
++    /// </summary>
++    internal static string? MissingFromLoadout(IEnumerable<string> requested, JsonArray? equipment)
++    {
++        var worn = (equipment ?? []).Select(row => row?["item_id"]?.GetValue<string>()).ToList();
++        foreach (string id in requested)
++        {
++            int at = worn.IndexOf(id);
++            if (at < 0) return id;
++            worn.RemoveAt(at);
++        }
++
++        return null;
++    }
+     internal const string UnknownCommit = "unknown";
+     internal static readonly (string Code, string Message) NotReady = ("world_not_ready", "world is unavailable or a save is loading");
+ 
+     /// <summary>The capabilities ping announces.</summary>
+-    internal static readonly string[] Capabilities = ["scene_setup"];
++    internal static readonly string[] Capabilities = ["scene_setup", "scene_setup_kits"];
+ 
+     /// <summary>Ping's fixed identity keys; the host adds the live ones.</summary>
+     internal static JsonObject PingIdentity() => new()
+diff --git a/src/Meitou.Game/Oracle/OracleProtocol.cs b/src/Meitou.Game/Oracle/OracleProtocol.cs
+index 764a293..81c1c71 100644
+--- a/src/Meitou.Game/Oracle/OracleProtocol.cs
++++ b/src/Meitou.Game/Oracle/OracleProtocol.cs
+@@ -7,7 +7,7 @@ namespace Meitou.Game.Oracle;
+ internal static class OracleProtocol
+ {
+     /// <summary>The adapter version ping reports as <c>plugin_version</c>; it follows the KenshiOracle protocol release it implements.</summary>
+-    internal const string AdapterVersion = "0.13.0";
++    internal const string AdapterVersion = "0.14.0";
+     internal const int MaxLineBytes = 65536; // Includes the terminating LF.
+     internal const int QueueCapacity = 64;
+     static readonly UTF8Encoding Utf8 = new(false, true);
+diff --git a/src/Meitou.Game/Oracle/OracleState.cs b/src/Meitou.Game/Oracle/OracleState.cs
+index 2d662bb..fedf38d 100644
+--- a/src/Meitou.Game/Oracle/OracleState.cs
++++ b/src/Meitou.Game/Oracle/OracleState.cs
+@@ -11,6 +11,7 @@ using Meitou.Game.Host;
+ using Meitou.Simulation;
+ using Meitou.Simulation.Ai;
+ using Meitou.Simulation.Combat;
++using Meitou.Simulation.Items;
+ using Meitou.Simulation.Movement;
+ using Meitou.Simulation.Population;
+ 
+@@ -40,14 +41,14 @@ internal sealed class OracleState
+         $"hand:{unchecked((uint)hand.Type)}:{unchecked((uint)hand.C)}:{unchecked((uint)hand.Cs)}:{unchecked((uint)hand.I)}:{unchecked((uint)hand.S)}");
+ 
+     /// <summary>The state schemas the adapter writes, oldest first; each adds keys to the one before and never changes them.</summary>
+-    internal static readonly string[] SchemaVersions = ["0.1", "0.2", "0.3", "0.4", "0.5"];
+-    internal const string DefaultSchemaVersion = "0.5";
++    internal static readonly string[] SchemaVersions = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"];
++    internal const string DefaultSchemaVersion = "0.6";
+ 
+     internal JsonObject Capture(WorldSession session, PopulationData data, string schemaVersion = DefaultSchemaVersion)
+     {
+         int level = Array.IndexOf(SchemaVersions, schemaVersion);
+         if (level < 0) throw new ArgumentException("Unsupported oracle state schema", nameof(schemaVersion));
+-        bool v02 = level >= 1, v03 = level >= 2, v04 = level >= 3, v05 = level >= 4;
++        bool v02 = level >= 1, v03 = level >= 2, v04 = level >= 3, v05 = level >= 4, v06 = level >= 5;
+         if (!ReferenceEquals(_world, session.World))
+         {
+             _world = session.World;
+@@ -151,6 +152,7 @@ internal sealed class OracleState
+             }
+             if (v04) AddState04(row, cold);
+             if (v05) row["goal"] = Goal(cold);
++            if (v06) row["equipment"] = Equipment(cold);
+             characters.Add(row);
+         }
+         var squadRows = new JsonArray();
+@@ -306,6 +308,33 @@ internal sealed class OracleState
+         row["being_carried"] = cold is null ? null : !cold.CarriedBy.IsNone;
+     }
+ 
++    /// <summary>
++    /// State 0.6's equipment: every item in one of the character's equipment sections (<see cref="InventoryCommands.IsEquipmentSection"/>: the
++    /// original's section names such as <c>hip</c>, <c>back</c>, <c>armour</c>, <c>head</c>), sorted by section then item id. Prosthetic limbs and
++    /// grid items are not equipment. <c>quality</c> is the stored <see cref="ItemInstance.Quality"/> (armour's grade), <c>level</c> the stored
++    /// <see cref="ItemInstance.Level"/> (what a weapon's or crossbow's stats read), <c>maker_id</c> and <c>model_id</c> a weapon's
++    /// WEAPON_MANUFACTURER and MATERIAL_SPECS_WEAPON records. Null without an inventory.
++    /// </summary>
++    internal static JsonArray? Equipment(CharacterCold? cold)
++    {
++        if (cold?.Inventory is not { } inventory) return null;
++
++        var rows = new JsonArray();
++        var worn = inventory.Items
++            .Where(i => InventoryCommands.IsEquipmentSection(i.Section))
++            .OrderBy(i => i.Section, OracleCanonicalJson.ScalarOrder)
++            .ThenBy(i => i.Record, OracleCanonicalJson.ScalarOrder);
++        foreach (var item in worn) rows.Add(EquipmentRow(item));
++        return rows;
++    }
++
++    static JsonObject EquipmentRow(ItemInstance item) => new()
++    {
++        ["section"] = KnownId(item.Section), ["item_id"] = KnownId(item.Record), ["quantity"] = item.Quantity,
++        ["quality"] = Number(item.Quality), ["level"] = item.Level,
++        ["maker_id"] = KnownId(item.CompanyId), ["model_id"] = KnownId(item.MaterialId),
++    };
++
+     static string Side(BodySide side) => side switch { BodySide.Left => ":left", BodySide.Right => ":right", _ => ":neither" };
+     static string? KnownId(string? value) => !string.IsNullOrEmpty(value) && value.Length <= 512 && !value.Any(c => c < 32 || c == 127) ? value : null;
+     static JsonNode? Number(double value) => double.IsFinite(value) && Math.Abs(value) <= 1e9 ? JsonValue.Create(value) : null;
+diff --git a/src/Meitou.Simulation/Player/PlayerSystem.cs b/src/Meitou.Simulation/Player/PlayerSystem.cs
+index b5868cc..7a6a9a4 100644
+--- a/src/Meitou.Simulation/Player/PlayerSystem.cs
++++ b/src/Meitou.Simulation/Player/PlayerSystem.cs
+@@ -51,6 +51,11 @@ public sealed class PlayerSystem(PopulationData? data = null) : ITickSystem, ITa
+     /// </summary>
+     internal PopulationData? Data => data;
+ 
++    /// <summary>
++    /// The assembly that rebuilds a character's fighter and look from its kit (null without population data).
++    /// </summary>
++    internal CharacterAssembly? Assembly => _assembly;
++
+     /// <summary>
+     /// The owner of the pick-up and container orders (row 3) and their act-outs.
+     /// </summary>
+diff --git a/src/Meitou.Simulation/World.OracleSetup.cs b/src/Meitou.Simulation/World.OracleSetup.cs
+index 14f4003..1431981 100644
+--- a/src/Meitou.Simulation/World.OracleSetup.cs
++++ b/src/Meitou.Simulation/World.OracleSetup.cs
+@@ -4,16 +4,19 @@ namespace Meitou.Simulation;
+ public sealed partial class World
+ {
+     /// <summary>
+-    /// Oracle scene setup: applies one F10 teleport or heal (<see cref="DebugTeleport"/>, <see cref="DebugHeal"/>) between ticks while paused,
+-    /// inside the same Inputs bracket and republish as <see cref="ApplyPausedInterfaceCommands"/>, so the change is in <see cref="CharacterTable.Previous"/> and the snapshot
+-    /// without advancing time. Other debug commands are refused (<see cref="DebugDamage"/> draws from the medical stream).
++    /// Oracle scene setup: applies one F10 command between ticks while paused, inside the same Inputs bracket and republish as
++    /// <see cref="ApplyPausedInterfaceCommands"/>, so the change is in <see cref="CharacterTable.Previous"/> and the snapshot without advancing time:
++    /// teleport, heal, strip, give (the loadout) or set stats. Other debug commands are refused (<see cref="DebugDamage"/> draws from the medical stream).
++    /// Strip and give use the player system's character assembly, so the fighter is rebuilt from the new kit.
+     /// </summary>
+     public void ApplyPausedOracleDebug(DebugCommand command)
+     {
+-        if (command is not (DebugTeleport or DebugHeal)) throw new ArgumentException("only teleport and heal apply through the oracle setup bracket", nameof(command));
+-        var data = SystemOf<PlayerSystem>()?.Data;
+-        if (command is DebugHeal && data is null) throw new InvalidOperationException("healing needs the population data");
+-        ApplyPausedOracleEdit(() => DebugCheats.Apply(this, data, null, command));
++        if (command is not (DebugTeleport or DebugHeal or DebugStripItems or DebugGiveItem or DebugSetStats))
++            throw new ArgumentException("only teleport, heal, strip, give and set stats apply through the oracle setup bracket", nameof(command));
++        var player = SystemOf<PlayerSystem>();
++        var data = player?.Data;
++        if (command is DebugHeal or DebugGiveItem && data is null) throw new InvalidOperationException("this command needs the population data");
++        ApplyPausedOracleEdit(() => DebugCheats.Apply(this, data, player?.Assembly, command));
+     }
+ 
+     /// <summary>
+diff --git a/tests/Meitou.Tests/Oracle/OracleSetupTests.cs b/tests/Meitou.Tests/Oracle/OracleSetupTests.cs
+index c1bd9a8..c39eac9 100644
+--- a/tests/Meitou.Tests/Oracle/OracleSetupTests.cs
++++ b/tests/Meitou.Tests/Oracle/OracleSetupTests.cs
+@@ -1,9 +1,13 @@
+ using System.Numerics;
++using System.Text.Json;
++using System.Text.Json.Nodes;
+ using Meitou.Data.Gameplay;
+ using Meitou.Data.Gameplay.Bodies;
+ using Meitou.Game;
+ using Meitou.Game.Oracle;
+ using Meitou.Simulation;
++using Meitou.Simulation.Bodies;
++using Meitou.Simulation.Items;
+ using SimWorld = Meitou.Simulation.World;
+ using Meitou.Simulation.Movement;
+ using Meitou.Simulation.Player;
+@@ -100,11 +104,11 @@ public class OracleSetupTests
+     {
+         var ping = OracleSetupPolicy.PingIdentity();
+         Assert.Equal(OracleProtocol.AdapterVersion, ping["plugin_version"]!.GetValue<string>());
+-        Assert.Equal("0.13.0", OracleProtocol.AdapterVersion);
+-        Assert.Equal("0.5", ping["state_schema_version"]!.GetValue<string>());
+-        Assert.Equal("0.5", ping["schema_version"]!.GetValue<string>());
+-        Assert.Equal(["0.1", "0.2", "0.3", "0.4", "0.5"], ping["supported_schema_versions"]!.AsArray().Select(v => v!.GetValue<string>()));
+-        Assert.Equal(["scene_setup"], ping["capabilities"]!.AsArray().Select(c => c!.GetValue<string>()));
++        Assert.Equal("0.14.0", OracleProtocol.AdapterVersion);
++        Assert.Equal("0.6", ping["state_schema_version"]!.GetValue<string>());
++        Assert.Equal("0.6", ping["schema_version"]!.GetValue<string>());
++        Assert.Equal(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"], ping["supported_schema_versions"]!.AsArray().Select(v => v!.GetValue<string>()));
++        Assert.Equal(["scene_setup", "scene_setup_kits"], ping["capabilities"]!.AsArray().Select(c => c!.GetValue<string>()));
+     }
+ 
+     [Fact]
+@@ -196,4 +200,58 @@ public class OracleSetupTests
+         Assert.Equal(new Vector3(9, 0, 9), world.Characters.Previous[spawned.Slot].Position);
+         Assert.Equal(0, world.Tick);
+     }
++
++    [Fact]
++    public void Paused_set_stats_writes_the_stored_values_without_advancing_the_world()
++    {
++        using var world = new SimWorld(new WorldSettings { Seed = 3, PublishSnapshots = false }, new OpenGroundWalkability(Ground), [new PlayerSystem()]);
++        var stats = new CharacterStats();
++        var a = world.Characters.Spawn(new CharacterHot(), new CharacterCold { Stats = stats }, 0);
++        world.ApplyPausedOracleDebug(new DebugSetStats([a], [StatsEnumerated.Katanas], 73) { Tick = 0 });
++        world.ApplyPausedOracleDebug(new DebugSetStats([a], [StatsEnumerated.Toughness], 12.5f) { Tick = 0 });
++        Assert.Equal((73f, 12.5f), (stats[StatsEnumerated.Katanas], stats[StatsEnumerated.Toughness]));
++        Assert.Equal(0, world.Tick);
++    }
++
++    [Fact]
++    public void Paused_strip_keeps_prosthetic_limbs_and_the_equipment_rows_list_only_worn_items()
++    {
++        using var world = new SimWorld(new WorldSettings { Seed = 3, PublishSnapshots = false }, new OpenGroundWalkability(Ground), [new PlayerSystem()]);
++        var cold = new CharacterCold { Inventory = new Inventory() };
++        cold.Inventory.Items.Add(new ItemInstance { Record = "shirt", Section = "shirt", Quality = 35 });
++        cold.Inventory.Items.Add(new ItemInstance { Record = "katana", Section = "hip", Level = 40, CompanyId = "maker", MaterialId = "model" });
++        cold.Inventory.Items.Add(new ItemInstance { Record = "arm", Section = "left_arm_replace" });
++        cold.Inventory.Items.Add(new ItemInstance { Record = "bread", Section = "main" });
++        var a = world.Characters.Spawn(new CharacterHot(), cold, 0);
++        var rows = OracleState.Equipment(cold)!;
++        Assert.Equal(["hip:katana", "shirt:shirt"], rows.Select(r => r!["section"]!.GetValue<string>() + ":" + r["item_id"]!.GetValue<string>()));
++        Assert.Equal((40, "maker", "model"), (rows[0]!["level"]!.GetValue<int>(), rows[0]!["maker_id"]!.GetValue<string>(),
++            rows[0]!["model_id"]!.GetValue<string>()));
++        Assert.Equal(35, rows[1]!["quality"]!.GetValue<double>());
++        world.ApplyPausedOracleDebug(new DebugStripItems(a, false) { Tick = 0 });
++        Assert.Equal(["arm"], cold.Inventory.Items.Select(i => i.Record));
++        Assert.Empty(OracleState.Equipment(cold)!);
++        Assert.Null(OracleState.Equipment(new CharacterCold()));
++    }
++
++    [Fact]
++    public void Set_stats_takes_state_04_keys_in_range_and_refuses_the_rest_with_the_contract_texts()
++    {
++        var values = OracleSetupPolicy.StatValues(Json("""{"katanas":60,"strength":0,"dodge":100}"""));
++        Assert.Equal([(StatsEnumerated.Katanas, 60f), (StatsEnumerated.Strength, 0f), (StatsEnumerated.Dodge, 100f)], values);
++        Assert.Equal("unknown stat: weapons", Assert.Throws<ArgumentException>(() => OracleSetupPolicy.StatValues(Json("""{"weapons":5}"""))).Message);
++        Assert.Equal("invalid number: stats.dodge", Assert.Throws<ArgumentException>(() => OracleSetupPolicy.StatValues(Json("""{"dodge":101}"""))).Message);
++        Assert.Equal("invalid object: stats", Assert.Throws<ArgumentException>(() => OracleSetupPolicy.StatValues(Json("{}"))).Message);
++    }
++
++    [Fact]
++    public void A_loadout_is_complete_only_when_every_requested_copy_is_worn()
++    {
++        var worn = new JsonArray(new JsonObject { ["item_id"] = "katana" }, new JsonObject { ["item_id"] = "shirt" });
++        Assert.Null(OracleSetupPolicy.MissingFromLoadout(["shirt", "katana"], worn));
++        Assert.Equal("katana", OracleSetupPolicy.MissingFromLoadout(["katana", "katana"], worn));
++        Assert.Equal("hat", OracleSetupPolicy.MissingFromLoadout(["hat"], null));
++    }
++
++    static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement.Clone();
+ }
+diff --git a/tests/Meitou.Tests/Oracle/OracleStateTests.cs b/tests/Meitou.Tests/Oracle/OracleStateTests.cs
+index 74c5cfc..b73c14e 100644
+--- a/tests/Meitou.Tests/Oracle/OracleStateTests.cs
++++ b/tests/Meitou.Tests/Oracle/OracleStateTests.cs
+@@ -446,7 +446,7 @@ public class OracleStateTests
+         Assert.Equal(["id", "faction_id", "members", "leader_id", "identity_origin", "template_id", "origin_town_id"],
+             v02["squads"]![0]!.AsObject().Select(pair => pair.Key));
+         Assert.Equal(v02.ToJsonString(), projection.Capture(session, Data(), "0.2").ToJsonString());
+-        Assert.Equal("0.5", projection.Capture(session, Data())["schema_version"]!.GetValue<string>());
++        Assert.Equal("0.6", projection.Capture(session, Data())["schema_version"]!.GetValue<string>());
+         var v03 = projection.Capture(session, Data(), "0.3");
+         string canonical03 = Encoding.UTF8.GetString(OracleCanonicalJson.Serialize(v03));
+         // Canonical scalar key order places the new keys between race_id and squad_id.
+@@ -455,7 +455,7 @@ public class OracleStateTests
+         stripped["schema_version"] = "0.2";
+         foreach (var row in stripped["characters"]!.AsArray()) { row!.AsObject().Remove("slave_state"); row.AsObject().Remove("slave_owner_faction_id"); }
+         Assert.Equal(OracleCanonicalJson.Serialize(v02), OracleCanonicalJson.Serialize(stripped));
+-        Assert.Throws<ArgumentException>(() => projection.Capture(session, Data(), "0.6"));
++        Assert.Throws<ArgumentException>(() => projection.Capture(session, Data(), "0.7"));
+     }
+ 
+     static void SetPrivate(object target, string property, object value) =>
+-- 
+2.43.0
+

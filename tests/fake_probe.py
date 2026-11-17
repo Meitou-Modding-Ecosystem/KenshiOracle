@@ -41,8 +41,10 @@ def sample_state():
         factions=[dict(id='fixture-faction', name='Fixture faction')], relations=[])
 
 
-SETUP_COMMANDS = ('setup_info', 'setup_area_census', 'setup_spawn_squad', 'setup_set_relation', 'setup_heal')
-SETUP_MUTATIONS = ('setup_spawn_squad', 'setup_set_relation', 'setup_heal')
+SETUP_COMMANDS = ('setup_info', 'setup_area_census', 'setup_spawn_squad', 'setup_set_relation', 'setup_heal',
+                  'setup_set_loadout', 'setup_set_stats')
+SETUP_MUTATIONS = ('setup_spawn_squad', 'setup_set_relation', 'setup_heal', 'setup_set_loadout', 'setup_set_stats')
+KIT_COMMANDS = ('setup_set_loadout', 'setup_set_stats')
 G1 = ('world_not_ready', 'world is unavailable or a save is loading')
 G2 = ('not_allowed', "scene setup requires a world loaded by the probe's load_save")
 G3 = ('not_allowed', 'scene setup was not enabled: load the save with allow_setup:true')
@@ -129,6 +131,7 @@ class FakeProbe(FakePlugin):
         self._clear_origins()
         # Scene setup (docs/scene-setup.md). Tests may change these attributes.
         self.capabilities = ['scene_setup']
+        self._equipment, self._stats = {}, {}
         self.build_commit = '0123456789abcdef0123456789abcdef01234567'
         # The contract's ping value. The fake's own schema_version and dump_state
         # stay 0.1; tests that need another answer set this attribute.
@@ -703,6 +706,8 @@ class FakeProbe(FakePlugin):
             self.state['clock']['paused'] = params['paused']
             self._clock()
             return dict(restored=True, paused=self.state['clock']['paused'])
+        if command in KIT_COMMANDS and 'scene_setup_kits' not in self.capabilities:
+            raise ProbeError('unknown command: ' + command)
         if command in SETUP_COMMANDS:
             return self._setup(command, params)
         if command == 'save_scene_snapshot':
@@ -831,7 +836,8 @@ class FakeProbe(FakePlugin):
         names = dict(setup_info=(), setup_area_census=('center', 'radius', 'limit'),
                      setup_spawn_squad=('template_id', 'faction_id', 'position', 'max_count', 'permanent'),
                      setup_set_relation=('source_id', 'target_id', 'value'),
-                     setup_heal=('character_id',))[command]
+                     setup_heal=('character_id',), setup_set_loadout=('character_id', 'items'),
+                     setup_set_stats=('character_id', 'stats'))[command]
         unknown = next((key for key in params if key not in names), None)
         if unknown is not None:
             raise self._bad('unknown parameter: ' + unknown)
@@ -953,6 +959,8 @@ class FakeProbe(FakePlugin):
             raise SetupRefusal('not_found', 'character is not loaded')
         if row['state'] == 'dead':
             raise self._bad('character is dead')
+        if command in KIT_COMMANDS:
+            return self._kit(command, params, identity, row)
         before = self._medical(row)
         world_before = self._setup_world()
         self.world_mutated = True
@@ -962,6 +970,24 @@ class FakeProbe(FakePlugin):
         return dict(character_id=identity, before=before, after=self._medical(row), saved=False,
                     world_mutated=True, gate=self._gate(), world_before=world_before,
                     world_after=self._setup_world())
+
+    def _kit(self, command, params, identity, row):
+        """setup_set_loadout and setup_set_stats: kits are kept per character (the fixture state carries no 0.6 rows)."""
+        world_before = self._setup_world()
+        if command == 'setup_set_loadout':
+            before = deepcopy(self._equipment.get(row['id'], []))
+            self.world_mutated = True
+            after = [dict(section='hip', item_id=item['item_id'], quantity=1, quality=item.get('quality', 0),
+                          level=item.get('level', 0), maker_id=item.get('maker_id'), model_id=item.get('model_id'))
+                     for item in params['items']]
+            self._equipment[row['id']] = after
+        else:
+            before = deepcopy(self._stats.get(row['id'], {}))
+            self.world_mutated = True
+            after = dict(before, **{key: float32(value) for key, value in params['stats'].items()})
+            self._stats[row['id']] = after
+        return dict(character_id=identity, before=before, after=deepcopy(after), saved=False, world_mutated=True,
+                    gate=self._gate(), world_before=world_before, world_after=self._setup_world())
 
     def _lock_camera(self):
         if not self.camera_owned:
