@@ -17,7 +17,8 @@ or guarantees for another installation.
   and [complete protocol](protocol.md)
 - [Cross-engine comparison](comparator.md) and
   [agreement between runs](agreement.md) (one run per side, noise floor, rules as data)
-- [Scene setup contract](scene-setup.md) (0.11.0, scenario-0.2)
+- [Scene setup contract](scene-setup.md) (0.11.0, kits 0.12.0, scenario-0.2)
+- [Ecosystem patch series](../integrations/meitou-ecosystem/README.md) (adapter on the Meitou-Modding-Ecosystem engine fork)
 - [Phase 1 delivery](oracle-phase1-delivery.md),
   [phase 1 validation](oracle-phase1-validation.md) and
   [acceptance scope](phase1-acceptance.md)

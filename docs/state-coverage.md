@@ -1,6 +1,6 @@
 <a id="couverture-de-létat-commun-01-et-02"></a>
 
-# Shared state 0.1, 0.2, 0.3, 0.4 and 0.5 coverage
+# Shared state 0.1, 0.2, 0.3, 0.4, 0.5 and 0.6 coverage
 
 The contracts are [state.schema.json, 0.1](../schema/state.schema.json), [state-0.2.schema.json](../schema/state-0.2.schema.json), [state-0.3.schema.json](../schema/state-0.3.schema.json), [state-0.4.schema.json](../schema/state-0.4.schema.json) and [state-0.5.schema.json](../schema/state-0.5.schema.json). The native adapter is in [OracleState.h](../plugin/OracleState.h); shared validation and normalization are in [oracle_schema.py](../mcp-server/oracle_schema.py). This page distinguishes the existence of an API from validation of a real capture.
 
@@ -417,6 +417,27 @@ SDK headers (**Verified**); the probe with 0.5 ran in game for the run above
 values repeated the 0.4 run's result, the same native bandage included).
 
 <a id="identités-et-comparabilité"></a>
+
+## Additive extension 0.6
+
+Version 0.6 ([state-0.6.schema.json](../schema/state-0.6.schema.json)) is 0.5
+plus **one required character field**, `equipment`: the items in the
+character's equipment sections, sorted by section then `item_id`, each
+`{section, item_id, quantity, quality, level, maker_id, model_id}`. Null is
+unknown coverage; an empty array is a character wearing nothing. 0.1 to 0.5
+output is unchanged on MeitouClient (pinned by its tests). The Meitou target
+still requests 0.5 unless its configuration sets `state_schema` to `"0.6"`.
+
+| Field | MeitouClient source | Status |
+| --- | --- | --- |
+| `section` | `ItemInstance.Section` for sections where `InventoryCommands.IsEquipmentSection` holds (the original's section names, for example `hip`, `back`, `armour`, `shirt`, `head`, `legs`, `boots`, `belt`, `backpack_attach`); prosthetic limb sections are excluded | **Verified** in code and by the adapter tests |
+| `item_id`, `quantity` | `ItemInstance.Record`, `Quantity` | **Verified** in code |
+| `quality`, `level` | stored `ItemInstance.Quality` and `Level` | **Verified** in code; the units against the original's stored `quality` are **Unknown** |
+| `maker_id`, `model_id` | `ItemInstance.CompanyId`, `MaterialId` (WEAPON_MANUFACTURER, MATERIAL_SPECS_WEAPON) | **Verified** in code |
+
+The native probe does not write 0.6 yet. Its candidate sources are the
+KenshiLib `Inventory::getEquippedWeapons` and `getEquippedArmour` lists, each
+item's `GameData::stringID`, `quality`, `getLevel()` and `manufacturerData`.
 
 ## Identities and comparability
 

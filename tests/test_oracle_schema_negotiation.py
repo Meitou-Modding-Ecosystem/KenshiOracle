@@ -234,14 +234,14 @@ def test_explicit_03_request_never_falls_back_on_a_02_producer(tmp_path):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize('requested', ['0.6', '0.50', 0.5, ''])
+@pytest.mark.parametrize('requested', ['0.7', '0.50', 0.5, ''])
 def test_unknown_requested_versions_are_rejected_at_configuration(requested):
-    with pytest.raises(ValueError, match='0.1, 0.2, 0.3, 0.4 or 0.5'):
+    with pytest.raises(ValueError, match='0.1, 0.2, 0.3, 0.4, 0.5 or 0.6'):
         OracleSession(dict(state_schema=requested), SchemaClient(None))
 
 
 def test_unknown_advertised_versions_are_ignored_by_negotiation(tmp_path):
-    client, session, state, _ = negotiate(tmp_path, ('0.2', '0.6'), actual='0.2')
+    client, session, state, _ = negotiate(tmp_path, ('0.2', '0.7'), actual='0.2')
     assert session.state_schema == '0.2'
 
 

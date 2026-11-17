@@ -1,0 +1,84 @@
+{
+  "engine_repository": "https://github.com/Meitou-Modding-Ecosystem/MeitouClient",
+  "engine_branch": "fork",
+  "engine_base": "2c7c85f98c92bfd0ffb031f3e851e6244a641279",
+  "series_branch": "claude/project-thread-tu44tl",
+  "series_tip": "1c311371903c2bc5c9378685ccdd2a9d634abb55",
+  "derived_from": "../meitou/series.json (patches 0001 to 0011, upstream base 9a19748be975fe7716aff90e3dcfd6691622e175)",
+  "adapter_version": "0.14.0",
+  "license": "GPL-3.0-or-later",
+  "patches": [
+    {
+      "file": "0001-Add-exact-camera-pose-restoration-for-controlled-ses.patch",
+      "source_commit": "82d681233e9dda484a6622e088b50a57c2e1b51a",
+      "sha256": "eab1a587703ad92c77eca026d5383d1aada1b956f03127cfecdf8cb8be64c872",
+      "bytes": 6828
+    },
+    {
+      "file": "0002-Add-opt-in-oracle-adapter-and-paused-load-boundary.patch",
+      "source_commit": "b39e283a1d3f9e8de78f0640233e7efe7028cbc7",
+      "sha256": "b61a23c995abb4b93313fcc15d44a7df753559c5a55159103553f3848a9f0129",
+      "bytes": 337753
+    },
+    {
+      "file": "0003-Add-paused-scene-setup-entry-points-to-the-simulatio.patch",
+      "source_commit": "b8a45f11f344c0ce2f951aa901cbb49494be100d",
+      "sha256": "383512b612bc8be72e9ac0313791e431d4b408e062988e97e2569f7f5e54b118",
+      "bytes": 14486
+    },
+    {
+      "file": "0004-Expose-scene-setup-commands-readiness-and-save-refus.patch",
+      "source_commit": "fcb9408dcf6fe9db279b23942b138687af85361e",
+      "sha256": "b5aac16593cc1dfee0b2137db29397cc68c018137d603da6b5e2150d21f8a967",
+      "bytes": 68874
+    },
+    {
+      "file": "0005-Expose-calculated-health-maxima-in-the-oracle-state-.patch",
+      "source_commit": "97aed442a360bdcf5bb98d5e35ca8f86ff3b0737",
+      "sha256": "6caf124cb92e4607f96d611e0d097785b3d65bbc89004bd82ddca09ebc94b8c8",
+      "bytes": 7794
+    },
+    {
+      "file": "0006-Expose-slave-state-and-owner-faction-in-oracle-state.patch",
+      "source_commit": "70f3e22a72263b69b366578a2424f81e33daa7eb",
+      "sha256": "6710e2df000b5e9ec9f03bd98029864dc1912fa2bb9517eb8a6b53cbb7ee875d",
+      "bytes": 35149
+    },
+    {
+      "file": "0007-Expose-state-0.4-fields-and-task-row-orders-in-the-o.patch",
+      "source_commit": "488a7fd2e1a3a06d42c35d8a740c53c13b60e76f",
+      "sha256": "afdea55c3b94c6304f5dbddeec5e13be1524a0aaa634dca13bae320a0730e83f",
+      "bytes": 102531
+    },
+    {
+      "file": "0008-Expose-state-0.5-AI-goals-and-plan-step-orders-in-th.patch",
+      "source_commit": "cde0ce9382a6f299f303802f96a3bf09b8831618",
+      "sha256": "6a837dfc122d0ea158657c9c462de1d005a0d697c421ad027b2c615a97a746ca",
+      "bytes": 71563
+    },
+    {
+      "file": "0009-Check-a-captive-job-s-goal-as-the-state-0.5-goal-of-.patch",
+      "source_commit": "a1e224fa0803ec5bce7c88bb1ea5fb777b55b0c6",
+      "sha256": "60527c87b1763b0fd999509c28f17e7aca063d12e7b3b7b9958b19147a84c668",
+      "bytes": 7819
+    },
+    {
+      "file": "0010-Raise-the-oracle-adapter-version-to-0.12.0.patch",
+      "source_commit": "9e2002f7e363791da93a510ce1af81ba848002df",
+      "sha256": "b5df1db31dbe4175b6cd2dc0dbab3572fa325ca8c6538b8310da68229cbe850d",
+      "bytes": 3079
+    },
+    {
+      "file": "0011-Raise-the-oracle-adapter-version-to-0.13.0.patch",
+      "source_commit": "3186658444d0140242c3a38c598c0ab9a9d26104",
+      "sha256": "b5aa0e02e4638208a755e20f07443a26a35997dbf3ba9b96904a869b157e89a4",
+      "bytes": 3133
+    },
+    {
+      "file": "0012-Add-oracle-gear-and-stats-setup-and-state-0.6-equipm.patch",
+      "source_commit": "1c311371903c2bc5c9378685ccdd2a9d634abb55",
+      "sha256": "bc917fdc5b4e4827e7e743e3311eba9e269c8158354178a212c2fa9a5ec1d2a1",
+      "bytes": 29197
+    }
+  ]
+}

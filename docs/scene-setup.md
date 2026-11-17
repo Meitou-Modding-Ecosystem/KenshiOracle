@@ -302,6 +302,86 @@ behaviour is **Unknown**. The runner therefore fails setup with
 `unconscious before heal` when a character to heal is unconscious in the S3b
 dump.
 
+## Kits: `setup_set_loadout` and `setup_set_stats` (0.12.0)
+
+Status: added by the Meitou-Modding-Ecosystem fork. MeitouClient implements
+both commands from adapter **0.14.0** (patch 0012 of the
+[ecosystem series](../integrations/meitou-ecosystem/README.md)) and announces
+capability `scene_setup_kits`. The native probe does not implement them yet:
+it answers them as unknown commands and does not announce the capability, so
+a scenario with `setup.kits` fails on the original before any mutation. Both
+commands are mutations (gate rows G1 to G4 and M1, M2; G5 on the native probe)
+and follow the shared command rules. Native API candidates, from the public
+KenshiLib headers: `Inventory::getEquippedWeapons`, `getEquippedArmour`,
+`equipItem`, `Character::giveItem`, `RootObjectFactory::createItem` (with a
+level override) and `CharStats::getStatRef`.
+
+Race is not set by command: a fixed race comes from the spawned squad
+template (a single-race fixture template), because replacing a live
+character's race would have to rebuild its body.
+
+### `setup_set_loadout`
+
+| Parameter | Type and range |
+| --- | --- |
+| `character_id` | string 1..200 bytes |
+| `items` | array of 0..16 objects, each `{item_id, quality?, maker_id?, model_id?, level?}`: `item_id`, `maker_id`, `model_id` strings 1..128 bytes; `quality`, `level` integers 0..100 |
+
+An `items` value that is not an array of at most 16 gives `invalid array: items`;
+item keys use the shared parameter texts (`unknown parameter: <key>`,
+`missing field: item_id`, `invalid string: <key>`, `<key> must be an integer`).
+
+| Refusal (in order) | Code | Message |
+| --- | --- | --- |
+| id malformed, unknown, not a character, or not loaded | `not_found` | `character is not loaded` |
+| character dead | `invalid_request` | `character is dead` |
+| no inventory | `state_unavailable` | `inventory unavailable` |
+| per item, in order: record absent | `not_found` | `item not found` |
+| record not WEAPON, ARMOUR or CROSSBOW | `invalid_request` | `item is not a WEAPON, ARMOUR or CROSSBOW record` |
+| `maker_id`, `model_id` or `level` on armour | `invalid_request` | `maker_id, model_id and level apply only to weapons and crossbows` |
+| maker absent or not WEAPON_MANUFACTURER | `not_found` | `weapon maker not found` |
+| model absent or not MATERIAL_SPECS_WEAPON | `not_found` | `weapon model not found` |
+| after the call: a requested item is not worn | `state_unavailable` | `item not equipped; reload the save: <item_id>` |
+
+Effect: everything the character carries is destroyed except prosthetic limbs
+and locked-on items (nothing is dropped), then each item is made and worn in
+order. Armour gets quality and level `quality` (default 0). A weapon or
+crossbow with any of `maker_id`, `model_id`, `level` gets exactly those (the
+rest stay as made); otherwise MeitouClient gives a weapon the
+`PLAYER_WEAPONS` model of its `quality` (**Verified** in its code).
+
+| Key | Type |
+| --- | --- |
+| `character_id` | echo |
+| `before`, `after` | state 0.6 `equipment` rows of the character |
+| `saved`, `world_mutated`, `gate`, `world_before`, `world_after` | common |
+
+### `setup_set_stats`
+
+| Parameter | Type and range |
+| --- | --- |
+| `character_id` | string 1..200 bytes |
+| `stats` | object of 1..34 state 0.4 stat keys, each a number 0..100 |
+
+A non-object or empty `stats` gives `invalid object: stats`, a key outside the
+state 0.4 list `unknown stat: <key>`, a value out of range or not a number
+`invalid number: stats.<key>`.
+
+| Refusal (in order) | Code | Message |
+| --- | --- | --- |
+| id malformed, unknown, not a character, or not loaded | `not_found` | `character is not loaded` |
+| character dead | `invalid_request` | `character is dead` |
+| no stats object | `state_unavailable` | `stats unavailable` |
+
+Effect: each named stored stat is set to its value, in the order given; no
+multiplier or effective-stat formula applies.
+
+| Key | Type |
+| --- | --- |
+| `character_id` | echo |
+| `before`, `after` | the 34 state 0.4 stats |
+| `saved`, `world_mutated`, `gate`, `world_before`, `world_after` | common |
+
 ## Changes to existing commands
 
 | Command | Change |
@@ -462,6 +542,7 @@ the plan numbering (S1 is reserved for moves).
 | S2 | Spawn point checked inside `scene_radius`, then `setup_spawn_squad` per spawn. Requires `returned_squad_id` non-null, `len(returned_members) == count == new_loaded_count`, `new_loaded_truncated` false, every member's `squad_id == returned_squad_id`, `medical` non-null, the faction, alive, and `expected_templates` (a mismatch fails with `template plan differs`). A census confirms the new characters. Bind aliases. |
 | S3 | `start` = `get_clock().elapsed_seconds` read after S2 and after `set_game_speed(1, preserve_pause=true)`; `run_until(start+33)`, paused at target; pin check; `calendar_seconds_run` = completion clock − `start` (overshoot recorded, not failed). |
 | S3b | `dump_state` to `setup/S3b.json`. A character to heal that is unconscious here fails with `unconscious before heal`. |
+| S3k | Only with `setup.kits` (requires capability `scene_setup_kits` before the guard is armed). Per kit, in order: `setup_set_loadout`, then `setup_set_stats`. Each requested item takes one `after` row of its `item_id`, and any requested `maker_id`, `model_id` or `level` must equal that row's; each requested stat must read `float32(value)`. The receipt's `kits` lists `{alias, id, equipment, stats}` (the `after` values, null when not requested). |
 | S5 | `setup_heal` per bound player and member. Every part `flesh == max` (`max` non-null) and `stun == 0`, not dead, not unconscious. Dump `setup/S5.json`; its relations equal S3b's. |
 | S4 | Per relation item: `(a,b,a_to_b)` then `(b,a,b_to_a)`. Each call's changed cells are only `(a,b)` or `(b,a)`; per-call `changed_cells` is recorded in `read_back`, not judged. After the pair both directions read the requested value; `is_enemy` is recorded both ways and must be `true` when the value is -60 or lower (the hostility Observed on both engines), otherwise it is recorded only; where `at_war` is non-null, `after == before` in both directions, and a null is recorded as the limitation `war flag not observable on <target>`. |
 | S6 | Dump `setup/S6.json` and census. Relations differ from S5 only in the pair cells, and the dump reads `a_to_b` and `b_to_a` for each item. Every alias is in the census, not dead, not unconscious. Heal state rests on the S5 replies (census has no medical rows). |

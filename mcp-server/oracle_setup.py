@@ -24,6 +24,8 @@ from probe import ProbeError
 
 
 CAPABILITY = 'scene_setup'
+# Loadouts and stored stats per spawned member (setup.kits; probe/adapter 0.14.0).
+KITS_CAPABILITY = 'scene_setup_kits'
 SETTLE_CALENDAR_SECONDS = 33
 CENSUS_LIMIT = 100
 COMMIT_UNKNOWN = 'commit unknown'
@@ -124,6 +126,8 @@ async def prepare_setup(session, scenario, cfg, ping, fingerprint, seeds, engine
     capabilities = ping.get('capabilities')
     if type(capabilities) is not list or CAPABILITY not in capabilities:
         raise ScenarioError('Probe lacks capability scene_setup; this scenario needs probe 0.11.0')
+    if scenario['setup'].get('kits') and KITS_CAPABILITY not in capabilities:
+        raise ScenarioError('Probe lacks capability scene_setup_kits; this scenario sets loadouts or stats')
     target = ping.get('target', 'original')
     if target == 'original':
         facts = (engine_facts or {}).get('squad_size') if isinstance(engine_facts, dict) else None
@@ -495,6 +499,53 @@ class _Block:
                 self.fail('unconscious before heal: ' + target['alias'])
         return state
 
+    async def s3k(self):
+        """Kits: each member's loadout, then its stats; every reply is read back against the request."""
+        self.step = 'S3k'
+        self.kits = []
+        for kit in self.setup.get('kits', []):
+            identity = self.alias_map.get(kit['alias'])
+            if identity is None:
+                self.fail(f'kit alias {kit["alias"]} was not bound by the spawn')
+            receipt = dict(alias=kit['alias'], id=identity, equipment=None, stats=None)
+            if 'loadout' in kit:
+                receipt['equipment'] = await self.loadout(kit['alias'], identity, kit['loadout'])
+            if 'stats' in kit:
+                receipt['stats'] = await self.stats(kit['alias'], identity, kit['stats'])
+            self.kits.append(receipt)
+
+    async def loadout(self, alias, identity, items):
+        await self.guard(mutated=True, mutation=True)
+        request = dict(character_id=identity, items=deepcopy(items))
+        record = await self.command('setup_set_loadout', request)
+        reply = record['reply']
+        self.mutation_reply(reply)
+        self.echo('setup_set_loadout', reply, {}, exact=[('character_id', identity)])
+        after = reply.get('after')
+        if type(after) is not list or not all(isinstance(row, dict) for row in after):
+            self.fail(f'loadout of {alias} returned no equipment')
+        missing = loadout_missing(items, after)
+        if missing is not None:
+            self.fail(f'loadout of {alias} is not worn as requested: {missing}')
+        self.passed(record, worn=len(after))
+        return after
+
+    async def stats(self, alias, identity, values):
+        await self.guard(mutated=True, mutation=True)
+        request = dict(character_id=identity, stats=dict(values))
+        record = await self.command('setup_set_stats', request)
+        reply = record['reply']
+        self.mutation_reply(reply)
+        self.echo('setup_set_stats', reply, {}, exact=[('character_id', identity)])
+        after = reply.get('after')
+        if not isinstance(after, dict):
+            self.fail(f'stats of {alias} returned no values')
+        for key, value in values.items():
+            if not same_float32(after.get(key), value):
+                self.fail(f'stats of {alias}: {key} reads {after.get(key)!r}, expected float32 of {value!r}')
+        self.passed(record)
+        return after
+
     async def s5(self, s3b):
         self.step = 'S5'
         self.healed = []
@@ -602,6 +653,24 @@ class _Block:
         await self.guard(mutated=True)
 
 
+def loadout_missing(items, equipment):
+    """The first requested item not worn as asked (its id, or id and the differing grade field); None when all are.
+
+    Each request takes one worn row of its item id; maker_id, model_id and level, when requested, must match that row.
+    """
+    rows = list(equipment)
+    for item in items:
+        candidates = [row for row in rows if row.get('item_id') == item['item_id']]
+        if not candidates:
+            return item['item_id']
+        match = next((row for row in candidates
+                      if all(row.get(key) == item[key] for key in ('maker_id', 'model_id', 'level') if key in item)), None)
+        if match is None:
+            return item['item_id'] + ' (grade differs)'
+        rows.remove(match)
+    return None
+
+
 def relation_cells(state):
     return {(row['source_id'], row['target_id']): row['value'] for row in state['relations']}
 
@@ -615,7 +684,7 @@ async def run_setup_block(session, scenario, folder, execution, profile, facts):
     (Path(folder) / 'setup').mkdir(parents=True, exist_ok=True)
     receipt = dict(receipt_format=RECEIPT_FORMAT, target=None, setup_hash=setup_hash(scenario['setup']),
                    build_commit=None, build_commit_known=False, alias_map=block.alias_map, steps=block.steps,
-                   dumps={}, members=[], squad_size=None, settle=None, limitations=block.limitations,
+                   dumps={}, members=[], kits=[], squad_size=None, settle=None, limitations=block.limitations,
                    verdict='failed', failure=None)
     block.dumps = receipt['dumps']
     execution['setup'] = receipt
@@ -631,6 +700,8 @@ async def run_setup_block(session, scenario, folder, execution, profile, facts):
         await block.s3()
         receipt['settle'] = block.settle
         s3b = await block.s3b()
+        await block.s3k()
+        receipt['kits'] = block.kits
         s5 = await block.s5(s3b)
         receipt['members'] = block.healed
         await block.s4()

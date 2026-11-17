@@ -13,7 +13,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from probe import Client, ProbeError, config, read_runtime_state
 from oracle_runner import OracleSession, run_scenario_file, restore_interrupted_scenario, restoration_reference
-from oracle_schema import validate_scenario
+from oracle_schema import STATS_KEYS, validate_scenario
 from oracle_targets import target_config
 from oracle_identity import validate_saved_handles, validate_origin_fingerprint, validate_origin_token
 
@@ -230,6 +230,38 @@ async def setup_heal(character_id: str, target: str = 'original') -> dict:
     """Fully heal one loaded, living character by its dump_state identity and return its medical state before and after. Same gate as setup_spawn_squad."""
     setup_string(character_id, 'character_id', 200)
     return await target_call('setup_heal', target, character_id=character_id)
+
+
+@mcp.tool()
+async def setup_set_loadout(character_id: str, items: list[dict], target: str = 'original') -> dict:
+    """Destroy everything a loaded, living character carries except prosthetic limbs and locked-on items, then make and wear each item in order (0..16). Each item: item_id (a WEAPON, ARMOUR or CROSSBOW record), optional quality 0..100, and for weapons and crossbows optional maker_id, model_id and level 0..100. Returns the equipment before and after. Needs probe capability scene_setup_kits; same gate as setup_spawn_squad."""
+    setup_string(character_id, 'character_id', 200)
+    if type(items) is not list or len(items) > 16:
+        raise ValueError('invalid array: items')
+    for item in items:
+        if type(item) is not dict or set(item) - {'item_id', 'quality', 'maker_id', 'model_id', 'level'}:
+            raise ValueError('invalid loadout item')
+        setup_string(item.get('item_id'), 'item_id')
+        for key in ('maker_id', 'model_id'):
+            if key in item:
+                setup_string(item[key], key)
+        for key in ('quality', 'level'):
+            if key in item:
+                setup_number(item[key], key, 0, 100, integer=True)
+    return await target_call('setup_set_loadout', target, character_id=character_id, items=items)
+
+
+@mcp.tool()
+async def setup_set_stats(character_id: str, stats: dict[str, float], target: str = 'original') -> dict:
+    """Set stored stats (state 0.4 keys such as katanas, melee_attack, toughness; values 0..100) of a loaded, living character and return all 34 before and after. Needs probe capability scene_setup_kits; same gate as setup_spawn_squad."""
+    setup_string(character_id, 'character_id', 200)
+    if type(stats) is not dict or not stats:
+        raise ValueError('invalid object: stats')
+    for key, value in stats.items():
+        if key not in STATS_KEYS:
+            raise ValueError('unknown stat: ' + str(key))
+        setup_number(value, 'stats.' + key, 0, 100)
+    return await target_call('setup_set_stats', target, character_id=character_id, stats=stats)
 
 
 @mcp.tool()

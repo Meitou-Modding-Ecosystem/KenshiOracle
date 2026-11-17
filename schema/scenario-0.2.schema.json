@@ -56,7 +56,31 @@
           "properties": {"sim_seconds": {"const": 1}}
         },
         "heal": {"const": "all_scene_characters"},
-        "relations": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"$ref": "#/$defs/relation"}}
+        "relations": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"$ref": "#/$defs/relation"}},
+        "kits": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/kit"}, "description": "Optional (probe capability scene_setup_kits): per spawned member, a loadout and/or stored stats, applied after the settle dump (S3b) and before the heal (S5)."}
+      }
+    },
+    "kit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias"],
+      "minProperties": 2,
+      "properties": {
+        "alias": {"$ref": "#/$defs/alias", "description": "A spawned member, <spawn alias>/<template>/<k>; player aliases are refused by the validator."},
+        "loadout": {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/loadout_item"}, "description": "setup_set_loadout: everything carried but prosthetic limbs and locked-on items is destroyed, then each item is made and worn in order."},
+        "stats": {"type": "object", "minProperties": 1, "maxProperties": 34, "propertyNames": {"enum": ["assassination", "athletics", "blunt", "cooking", "crossbows", "dexterity", "dodge", "engineering", "farming", "friendly_fire", "hackers", "heavyweapons", "katanas", "labouring", "lockpicking", "martialarts", "masscombat", "medic", "melee_attack", "melee_defence", "perception", "polearms", "robotics", "sabres", "science", "smithing_armour", "smithing_bow", "smithing_weapon", "stealth", "strength", "swimming", "thieving", "toughness", "turrets"]}, "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}, "description": "setup_set_stats: stored stat values by state 0.4 key."}
+      }
+    },
+    "loadout_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id"],
+      "properties": {
+        "item_id": {"$ref": "#/$defs/gamedata_id", "description": "A WEAPON, ARMOUR or CROSSBOW record."},
+        "quality": {"type": "integer", "minimum": 0, "maximum": 100, "description": "Grade 0..100, default 0: armour quality and level; a weapon's model by quality when no maker, model or level is given."},
+        "maker_id": {"$ref": "#/$defs/gamedata_id", "description": "Weapons and crossbows only: WEAPON_MANUFACTURER record."},
+        "model_id": {"$ref": "#/$defs/gamedata_id", "description": "Weapons and crossbows only: MATERIAL_SPECS_WEAPON record."},
+        "level": {"type": "integer", "minimum": 0, "maximum": 100, "description": "Weapons and crossbows only: stored level."}
       }
     },
     "spawn": {

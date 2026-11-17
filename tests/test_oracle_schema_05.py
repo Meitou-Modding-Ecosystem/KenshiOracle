@@ -82,9 +82,9 @@ def test_schema_05_is_self_contained_valid_and_only_adds_the_goal_to_04():
 
 
 def test_versions_and_comparable_versions():
-    assert STATE_SCHEMA_VERSIONS == ('0.1', '0.2', '0.3', '0.4', '0.5')
-    assert LATEST_STATE_SCHEMA_VERSION == '0.5'
-    assert COMPARABLE_STATE_SCHEMA_VERSIONS == ('0.2', '0.3', '0.4', '0.5')
+    assert STATE_SCHEMA_VERSIONS == ('0.1', '0.2', '0.3', '0.4', '0.5', '0.6')
+    assert LATEST_STATE_SCHEMA_VERSION == '0.6'
+    assert COMPARABLE_STATE_SCHEMA_VERSIONS == ('0.2', '0.3', '0.4', '0.5', '0.6')
     assert validate_state(state_05())['schema_version'] == '0.5'
     assert validate_state(filled())['schema_version'] == '0.5'
     assert validate_state(state_04())['schema_version'] == '0.4'

@@ -1,4 +1,4 @@
-"""Shared oracle contracts (state 0.1/0.2/0.3/0.4/0.5, scenario 0.1/scenario-0.2) and canonical, engine-independent state bytes.
+"""Shared oracle contracts (state 0.1/0.2/0.3/0.4/0.5/0.6, scenario 0.1/scenario-0.2) and canonical, engine-independent state bytes.
 
 Numbers are finite binary64 values with magnitude at most 1e9. Quantization is
 floor(abs(x) * 1e6 + .5), signed afterwards: ties away from zero, negative zero
@@ -21,10 +21,10 @@ from jsonschema import Draft202012Validator
 SCENARIO_SCHEMA_VERSIONS = ('0.1', 'scenario-0.2')
 # Deprecated alias for the first scenario version; use SCENARIO_SCHEMA_VERSIONS.
 SCHEMA_VERSION = '0.1'
-STATE_SCHEMA_VERSIONS = ('0.1', '0.2', '0.3', '0.4', '0.5')
-LATEST_STATE_SCHEMA_VERSION = '0.5'
+STATE_SCHEMA_VERSIONS = ('0.1', '0.2', '0.3', '0.4', '0.5', '0.6')
+LATEST_STATE_SCHEMA_VERSION = '0.6'
 # Versions carrying the additive 0.2 fields; the comparator requires one of them.
-COMPARABLE_STATE_SCHEMA_VERSIONS = ('0.2', '0.3', '0.4', '0.5')
+COMPARABLE_STATE_SCHEMA_VERSIONS = ('0.2', '0.3', '0.4', '0.5', '0.6')
 # State 0.4 object keys (schema/state-0.4.schema.json requires exactly these).
 MEDICAL_KEYS = ('blood', 'bleed_rate', 'hunger', 'fed', 'coma', 'blood_loss_trauma')
 # KenshiLib StatsEnumerated names without STAT_, lower case; hivemedic and vet
@@ -129,7 +129,7 @@ def _unique(rows: list, key, path: str) -> None:
 def validate_state(state: dict) -> dict:
     """Validate shape and unique stable identities; return the original unchanged."""
     # Keep the historical schema file and scenario version independent. New
-    # states must carry every additive 0.2 (and 0.3, 0.4, 0.5) field; a version change
+    # states must carry every additive 0.2 (and 0.3, 0.4, 0.5, 0.6) field; a version change
     # alone fails. Any other version, unknown included, fails the 0.1 constant.
     version = state.get('schema_version') if type(state) is dict else None
     kind = 'state-' + version if version in COMPARABLE_STATE_SCHEMA_VERSIONS else 'state'
@@ -196,6 +196,7 @@ def _validate_setup(scenario: dict) -> None:
                 _integer(count, f'{path}.expected_templates.{template}')
             if sum(spawn['expected_templates'].values()) != spawn['count']:
                 raise OracleSchemaError(f'{path}.expected_templates: counts must sum to count')
+        _validate_kits(setup.get('kits', []), spawns)
         directions = {}
         for index, relation in enumerate(setup['relations']):
             path = f'$.setup.relations[{index}]'
@@ -238,6 +239,27 @@ def _validate_setup(scenario: dict) -> None:
             if (member is None or member.group(1) not in spawns
                     or _index(member.group(3)) > spawns[member.group(1)].get(member.group(2), 0)):
                 raise OracleSchemaError(f'{path}: unknown alias {alias!r}')
+
+
+def _validate_kits(kits: list, spawns: dict) -> None:
+    """Each kit names one spawned member once; its ids are GameData ids (docs/scene-setup.md, Kits)."""
+    seen = set()
+    for index, kit in enumerate(kits):
+        path = f'$.setup.kits[{index}]'
+        member = _MEMBER_ALIAS.fullmatch(kit['alias'])
+        if (member is None or member.group(1) not in spawns
+                or _index(member.group(3)) > spawns[member.group(1)].get(member.group(2), 0)):
+            raise OracleSchemaError(f'{path}.alias: unknown member alias {kit["alias"]!r}')
+        if kit['alias'] in seen:
+            raise OracleSchemaError(f'{path}.alias: duplicate kit for {kit["alias"]!r}')
+        seen.add(kit['alias'])
+        for item_index, item in enumerate(kit.get('loadout', [])):
+            for key in ('item_id', 'maker_id', 'model_id'):
+                if key in item:
+                    _gamedata_id(item[key], f'{path}.loadout[{item_index}].{key}')
+            for key in ('quality', 'level'):
+                if key in item:
+                    _integer(item[key], f'{path}.loadout[{item_index}].{key}')
 
 
 def validate_scenario(scenario: dict) -> dict:
