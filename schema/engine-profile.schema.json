@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:kenshi-oracle:engine-profile:0.1",
   "title": "Kenshi oracle engine profile engine-profile-0.1",
-  "description": "Local scene-setup pins per target, save, source fingerprint and seed (docs/scene-setup.md, Engine profile). The file is named by the config key engine_profile and is never committed. Pins exist for oracle-base-nature only; the loader enforces that and rejects duplicate lookup keys.",
+  "description": "Local scene-setup pins per target, save, source fingerprint and seed (docs/scene-setup.md, Engine profile). The file is named by the config key engine_profile and is never committed. Pins exist for oracle-base-nature and oracle-arena only; the loader enforces that and rejects duplicate lookup keys.",
   "type": "object", "additionalProperties": false,
   "required": ["profile_format", "entries"],
   "properties": {

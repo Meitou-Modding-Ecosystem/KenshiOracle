@@ -18,7 +18,7 @@ from oracle_identity import validate_origin_fingerprint
 
 
 PROFILE_FORMAT = 'engine-profile-0.1'
-PINNED_SAVES = ('oracle-base-nature',)
+PINNED_SAVES = ('oracle-base-nature', 'oracle-arena')
 TARGETS = ('original', 'meitou')
 MAX_PROFILE_BYTES = 1024 * 1024
 _SCHEMA = Path(__file__).resolve().parent.parent / 'schema' / 'engine-profile.schema.json'
