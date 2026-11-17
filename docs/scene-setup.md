@@ -504,7 +504,8 @@ schema file `schema/engine-profile.schema.json` (added in W6).
 - Lookup key: `target`, `save`, `source_fingerprint` (from the load's saved
   origins or source manifest), `seed` (decimal string on MeitouClient, `null`
   on the original).
-- Pins exist for `oracle-base-nature` only (Q5). `seed` is `null` on the
+- Pins exist for `oracle-base-nature` and, in this fork, the local arena save
+  `oracle-arena` of the [exchange-rate ladder](../tools/exchange-rate/README.md) (Q5). `seed` is `null` on the
   original, and `null` on MeitouClient when one pin applies to every seed
   (the initial entry: Y 736.593 was read with seeds 0 and 1, **Observed**);
   a decimal-string seed entry takes precedence over the `null` one. The pin is
