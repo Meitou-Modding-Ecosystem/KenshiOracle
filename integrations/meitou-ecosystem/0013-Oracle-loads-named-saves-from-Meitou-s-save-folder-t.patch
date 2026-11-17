@@ -1,0 +1,116 @@
+From 2d63f7616c22f1a09de01f2340bb9b3403862ae0 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Tue, 17 Nov 2026 08:23:14 +0000
+Subject: [PATCH] Oracle loads named saves from Meitou's save folder, then the
+ original's
+
+Adapter 0.14.1: ping reports save_roots (Meitou's saves, then the original's
+or the --load parent); load_save takes the first root holding the save.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_012iW1fC5MgMJ7rLVxjnLhym
+---
+ src/Meitou.Game/GameHost.Oracle.cs            | 30 +++++++++++++++++--
+ src/Meitou.Game/Oracle/OracleProtocol.cs      |  2 +-
+ tests/Meitou.Tests/Oracle/OracleSetupTests.cs |  2 +-
+ 3 files changed, 29 insertions(+), 5 deletions(-)
+
+diff --git a/src/Meitou.Game/GameHost.Oracle.cs b/src/Meitou.Game/GameHost.Oracle.cs
+index 1bcf5c4..10bfba7 100644
+--- a/src/Meitou.Game/GameHost.Oracle.cs
++++ b/src/Meitou.Game/GameHost.Oracle.cs
+@@ -19,6 +19,7 @@ sealed partial class GameHost
+     OracleState? _oracleState;
+     readonly string _oracleInstance = g.Oracle ? Guid.NewGuid().ToString("N") : "";
+     string _oracleOutput = "", _oracleSaveRoot = "";
++    string[] _oracleSaveRoots = [];
+     ulong _oracleSeed;
+     string _oracleSeedSource = "default";
+     bool _oracleSeedApplied, _oracleLoadPending;
+@@ -59,6 +60,7 @@ sealed partial class GameHost
+         _oracleSaveRoot = GameOptions.Load is { } folder
+             ? Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)))!
+             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "kenshi", "save");
++        _oracleSaveRoots = OracleHostPolicy.SaveRoots(QuickSave.DefaultRoot, _oracleSaveRoot);
+         _oracleLoadPending = GameOptions.Load is not null;
+         _oracleState = new OracleState();
+         StartOracleSetup();
+@@ -195,7 +197,8 @@ sealed partial class GameHost
+                 ping["instance_id"] = _oracleInstance; ping["process_id"] = Environment.ProcessId; ping["oracle_available"] = true;
+                 ping["world_ready"] = OracleReady; ping["frame"] = _oracleFrame; ping["timestamp_ms"] = RealTime.Elapsed.TotalMilliseconds;
+                 ping["paused"] = Session.Simulation.IsPaused; ping["load_pause_pending"] = _oracleLoadPending || Covered;
+-                ping["current_save"] = OracleCurrentSave; ping["save_root"] = _oracleSaveRoot; ping["saved_origins_required"] = false; ping["rekenshi_settings_available"] = false;
++                ping["current_save"] = OracleCurrentSave; ping["save_root"] = _oracleSaveRoot;
++                ping["save_roots"] = new JsonArray([.. _oracleSaveRoots.Select(root => (JsonNode?)root)]); ping["saved_origins_required"] = false; ping["rekenshi_settings_available"] = false;
+                 ping["seed"] = _oracleSeed.ToString(CultureInfo.InvariantCulture); ping["seed_source"] = _oracleSeedSource;
+                 ping["seed_applied_before_load"] = _oracleSeedApplied; ping["load_error"] = _oracleLoadError;
+                 ping["startup_boundary"] = "population_prepared_without_simulation_tick";
+@@ -268,9 +271,9 @@ sealed partial class GameHost
+         ulong seed = p.TryGetProperty("seed", out var seedJson) ? OracleHostPolicy.ReadSeed(seedJson) : _oracleSeed;
+         bool allowSetup = p.TryGetProperty("allow_setup", out _) && OracleBool(p, "allow_setup");
+         if (!Saves.SavesAvailable(out string why) || Saves.Busy()) throw new OracleHostError("busy", why.Length > 0 ? why : "a save or load is in progress");
+-        string folder = Path.Combine(_oracleSaveRoot, name);
++        string folder = OracleHostPolicy.FindSave(_oracleSaveRoots, name)
++            ?? throw new OracleHostError("not_found", $"no save folder {name} with a quick.save under {string.Join(" or ", _oracleSaveRoots)}");
+         OracleHostPolicy.EnsureNoLinks(folder);
+-        if (!File.Exists(Path.Combine(folder, SaveFolder.QuickSaveName))) throw new OracleHostError("not_found", "save folder contains no quick.save");
+         StopOracleRun("cancelled");
+         Session.Simulation.SetSpeed(0);
+         _oracleSeed = seed;
+@@ -554,6 +557,27 @@ internal static class OracleHostPolicy
+         else session.World.RunTick();
+     }
+ 
++    /// <summary>
++    /// The folders a named oracle load looks in, in order: Meitou's own saves, then <paramref name="kenshiRoot"/> (the original's saves, or the
++    /// parent of a <c>--load</c> folder), once each.
++    /// </summary>
++    internal static string[] SaveRoots(string meitouRoot, string kenshiRoot)
++    {
++        string meitou = Path.GetFullPath(meitouRoot);
++        string kenshi = Path.GetFullPath(kenshiRoot);
++        return string.Equals(meitou, kenshi, StringComparison.OrdinalIgnoreCase) ? [meitou] : [meitou, kenshi];
++    }
++
++    /// <summary>
++    /// The folder of save <paramref name="name"/> under the first of <paramref name="roots"/> that holds it with a quick.save, or null.
++    /// </summary>
++    internal static string? FindSave(IEnumerable<string> roots, string name)
++    {
++        return roots
++            .Select(root => Path.Combine(root, name))
++            .FirstOrDefault(folder => File.Exists(Path.Combine(folder, SaveFolder.QuickSaveName)));
++    }
++
+     internal static void ValidateSaveName(string value)
+     {
+         if (value.Length is < 1 or > 128 || value is "." or ".." || value.IndexOfAny(['/', '\\', ':']) >= 0
+diff --git a/src/Meitou.Game/Oracle/OracleProtocol.cs b/src/Meitou.Game/Oracle/OracleProtocol.cs
+index 81c1c71..113497e 100644
+--- a/src/Meitou.Game/Oracle/OracleProtocol.cs
++++ b/src/Meitou.Game/Oracle/OracleProtocol.cs
+@@ -7,7 +7,7 @@ namespace Meitou.Game.Oracle;
+ internal static class OracleProtocol
+ {
+     /// <summary>The adapter version ping reports as <c>plugin_version</c>; it follows the KenshiOracle protocol release it implements.</summary>
+-    internal const string AdapterVersion = "0.14.0";
++    internal const string AdapterVersion = "0.14.1";
+     internal const int MaxLineBytes = 65536; // Includes the terminating LF.
+     internal const int QueueCapacity = 64;
+     static readonly UTF8Encoding Utf8 = new(false, true);
+diff --git a/tests/Meitou.Tests/Oracle/OracleSetupTests.cs b/tests/Meitou.Tests/Oracle/OracleSetupTests.cs
+index c39eac9..15a974e 100644
+--- a/tests/Meitou.Tests/Oracle/OracleSetupTests.cs
++++ b/tests/Meitou.Tests/Oracle/OracleSetupTests.cs
+@@ -104,7 +104,7 @@ public class OracleSetupTests
+     {
+         var ping = OracleSetupPolicy.PingIdentity();
+         Assert.Equal(OracleProtocol.AdapterVersion, ping["plugin_version"]!.GetValue<string>());
+-        Assert.Equal("0.14.0", OracleProtocol.AdapterVersion);
++        Assert.Equal("0.14.1", OracleProtocol.AdapterVersion);
+         Assert.Equal("0.6", ping["state_schema_version"]!.GetValue<string>());
+         Assert.Equal("0.6", ping["schema_version"]!.GetValue<string>());
+         Assert.Equal(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"], ping["supported_schema_versions"]!.AsArray().Select(v => v!.GetValue<string>()));
+-- 
+2.43.0
+

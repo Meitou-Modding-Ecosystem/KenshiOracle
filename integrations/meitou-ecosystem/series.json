@@ -3,9 +3,9 @@
   "engine_branch": "fork",
   "engine_base": "2c7c85f98c92bfd0ffb031f3e851e6244a641279",
   "series_branch": "claude/project-thread-tu44tl",
-  "series_tip": "1c311371903c2bc5c9378685ccdd2a9d634abb55",
+  "series_tip": "2d63f7616c22f1a09de01f2340bb9b3403862ae0",
   "derived_from": "../meitou/series.json (patches 0001 to 0011, upstream base 9a19748be975fe7716aff90e3dcfd6691622e175)",
-  "adapter_version": "0.14.0",
+  "adapter_version": "0.14.1",
   "license": "GPL-3.0-or-later",
   "patches": [
     {
@@ -79,6 +79,12 @@
       "source_commit": "1c311371903c2bc5c9378685ccdd2a9d634abb55",
       "sha256": "bc917fdc5b4e4827e7e743e3311eba9e269c8158354178a212c2fa9a5ec1d2a1",
       "bytes": 29197
+    },
+    {
+      "file": "0013-Oracle-loads-named-saves-from-Meitou-s-save-folder-t.patch",
+      "source_commit": "2d63f7616c22f1a09de01f2340bb9b3403862ae0",
+      "sha256": "c91cf0fdd9a993d3fe5b6961687de0aad109e62608b2f87cab43fbfd4ffc20a8",
+      "bytes": 7040
     }
   ]
 }

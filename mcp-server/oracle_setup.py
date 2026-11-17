@@ -138,7 +138,7 @@ async def prepare_setup(session, scenario, cfg, ping, fingerprint, seeds, engine
     else:
         # MeitouClient prepares no native context; fingerprint the same source as its loads.
         try:
-            manifest = await asyncio.to_thread(read_saved_origins, session.source_root(ping), scenario['save'])
+            manifest = await asyncio.to_thread(read_saved_origins, session.source_root(ping, scenario['save']), scenario['save'])
         except SavedOriginError as exc:
             raise ScenarioError('Saved identity source '+exc.code+': '+str(exc)) from exc
         fingerprint = validate_origin_fingerprint(manifest['fingerprint'])
