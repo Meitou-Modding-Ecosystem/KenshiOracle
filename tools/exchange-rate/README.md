@@ -25,38 +25,73 @@ Hundred Guardians. Larger sides use a second spawn (up to 20 bandits and 12 guar
 
 ## Setup on Windows
 
-1. **Engine.** In a MeitouClient clone of Meitou-Modding-Ecosystem/MeitouClient:
-   `git fetch origin claude/project-thread-tu44tl`, `git checkout FETCH_HEAD`, `dotnet build -c Release`.
-2. **KenshiOracle.** Clone Meitou-Modding-Ecosystem/KenshiOracle next to it, then
-   `python -m venv .venv` and `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
-3. **Config.** Copy `config.example.json` to `config.json` (only `meitou_config` and `engine_profile` matter
-   here) and `config.meitou.example.json` to `config.meitou.json`. In the latter, point `executable`,
-   `working_directory`, `game_install`, `log` and `dump_directory` at your build and install (the exe is under
-   `bin/Release/net11.0/`), and set `"state_schema": "0.6"` and `"startup_save": "oracle-arena"`.
+The commands assume both clones live in `C:\Users\<you>\source\repos`; change that path to yours.
+
+1. **Engine.**
+   ```powershell
+   cd C:\Users\<you>\source\repos\MeitouClient
+   git fetch origin claude/project-thread-tu44tl
+   git checkout FETCH_HEAD
+   dotnet build -c Release
+   ```
+2. **KenshiOracle**, cloned next to MeitouClient (not inside it):
+   ```powershell
+   cd C:\Users\<you>\source\repos
+   git clone https://github.com/Meitou-Modding-Ecosystem/KenshiOracle
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   python -m venv .venv
+   & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+3. **Config.**
+   ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   Copy-Item config.example.json config.json
+   Copy-Item config.meitou.example.json config.meitou.json
+   ```
+   In `config.meitou.json`, point `executable`, `working_directory`, `game_install`, `log` and `dump_directory`
+   at your build and install (the exe is under `bin\Release\net11.0\`), and set `"state_schema": "0.6"` and
+   `"startup_save": "oracle-arena"`. Paths in it are relative to `config.meitou.json` itself.
 4. **Arena save.** In MeitouClient (not under the watchdog), start a one-character game, walk to flat open
    ground at least 1500 units from any town, Dust Bandits or Shek, stop, and save as `oracle-arena`. Leave code
    mods such as Rivalry Core out of the mod list: their parties would join the fight.
-5. **Pin.** Start the supervisor in its own terminal:
-   `& .\.venv\Scripts\python.exe -m launcher.meitou_watchdog --config config.meitou.json`.
-   Once the save has loaded, in a second terminal:
-   `& .\.venv\Scripts\python.exe tools\exchange-rate\xr.py pin --config config.json`.
-   It loads the save, reads the player's position before and after the one-second settle, and writes the
-   entry into `runtime/engine-profile.json` (re-run it whenever the save changes).
-6. **Scenarios.** `& .\.venv\Scripts\python.exe tools\exchange-rate\xr.py make` writes
-   `scenarios/exchange-rate/xr-bMM-gNN.json`. The default ladder is 1 guard against 1-4 bandits, 3 against
-   3-9 and 6 against 6-15, 10 repetitions each at speed 3; `--ladder "3:4,6,8" --repeat 5` changes it.
-7. **Run.**
+5. **Pin.** Start the supervisor in its own terminal and leave it open:
    ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   & .\.venv\Scripts\python.exe -m launcher.meitou_watchdog --config config.meitou.json
+   ```
+   Once the save has loaded, in a second terminal:
+   ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   & .\.venv\Scripts\python.exe tools\exchange-rate\xr.py pin --config config.json
+   ```
+   It writes the save's entry into `runtime\engine-profile.json`. Re-run it whenever the save changes.
+6. **Scenarios.**
+   ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   & .\.venv\Scripts\python.exe tools\exchange-rate\xr.py make
+   ```
+   It writes `scenarios\exchange-rate\xr-bMM-gNN.json`. The default ladder is 1 guard against 1-4 bandits, 3
+   against 3-9 and 6 against 6-15, 10 repetitions each at speed 3; `--ladder "3:4,6,8" --repeat 5` changes it.
+7. **Run**, with the supervisor still open:
+   ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
    Get-ChildItem scenarios\exchange-rate\*.json | ForEach-Object {
      & .\.venv\Scripts\python.exe -m launcher run-scenario $_.FullName --target meitou --config config.json --prepare
    }
    ```
-   Each repetition is 240 game seconds plus the load; a stopped run needs
-   `python -m launcher restore-scenario --target meitou --config config.json` before the next.
-8. **Analyse.** `& .\.venv\Scripts\python.exe tools\exchange-rate\xr.py analyse runs` prints per rung the
-   guard wins, bandit wins and undecided runs (both sides still standing at 240 s), and per guard count the
-   even-match bandit count, the bandits-per-guard ratio and its square (the individual strength ratio if the
-   fight follows Lanchester's square law).
+   Each repetition is 240 game seconds plus the load. After a stopped run, before the next:
+   ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   & .\.venv\Scripts\python.exe -m launcher restore-scenario --target meitou --config config.json
+   ```
+8. **Analyse.**
+   ```powershell
+   cd C:\Users\<you>\source\repos\KenshiOracle
+   & .\.venv\Scripts\python.exe tools\exchange-rate\xr.py analyse runs
+   ```
+   It prints per rung the guard wins, bandit wins and undecided runs (both sides still standing at 240 s), and
+   per guard count the even-match bandit count, the bandits-per-guard ratio and its square (the individual
+   strength ratio if the fight follows Lanchester's square law).
 
 ## Reading the result
 
