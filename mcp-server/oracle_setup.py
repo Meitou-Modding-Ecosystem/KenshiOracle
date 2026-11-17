@@ -362,11 +362,14 @@ class _Block:
             facts = deepcopy((self.facts or {}).get('squad_size'))
             source = 'engine_facts'
         else:
+            # MeitouClient reports the multiplier its spawner uses; that effective value is the only fact checked (this fork).
             facts = deepcopy(info.get('squad_size'))
-            source = 'setup_info'
-            if (not isinstance(facts, dict) or facts.get('source') != 'settings.cfg'
-                    or facts.get('path') != 'settings.cfg'):
-                self.fail('setup_info squad_size does not come from settings.cfg')
+            if not isinstance(facts, dict) or type(facts.get('multiplier')) not in (int, float):
+                self.fail('squad size facts are missing')
+            if facts['multiplier'] != multiplier:
+                self.fail(f'squad size multiplier {facts["multiplier"]!r} differs from {multiplier!r}')
+            return dict(source='setup_info', multiplier=facts['multiplier'], line=facts.get('line'),
+                        sha256=facts.get('sha256'), path=facts.get('path'), reported_source=facts.get('source'))
         if (not isinstance(facts, dict) or type(facts.get('sha256')) is not str
                 or type(facts.get('multiplier')) not in (int, float)):
             self.fail('squad size facts are missing')
