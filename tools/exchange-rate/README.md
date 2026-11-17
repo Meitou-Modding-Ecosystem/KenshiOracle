@@ -91,7 +91,7 @@ $Oracle = "$Repos\KenshiOracle"
    & .\.venv\Scripts\python.exe tools\exchange-rate\xr.py make
    ```
    It writes `scenarios\exchange-rate\xr-bMM-gNN.json`. The default ladder is 1 guard against 1-4 bandits, 3
-   against 3-9 and 6 against 6-15, 10 repetitions each at speed 3; `--ladder "3:4,6,8" --repeat 5` changes it.
+   against 3-9 and 6 against 6-15, 10 repetitions each at speed 2 (MeitouClient accepts 1, 2 or 5); `--ladder "3:4,6,8" --repeat 5` changes it.
 7. **Run**, with the supervisor still open:
    ```powershell
    Get-ChildItem scenarios\exchange-rate\*.json | ForEach-Object {
