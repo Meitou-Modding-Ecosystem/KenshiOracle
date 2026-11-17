@@ -280,7 +280,8 @@ def parser():
     command.add_argument('--ladder', help='"guards:bandits,bandits;..." e.g. "1:1,2,3,4;3:3,5,7,9" (default: '
                          + ';'.join(f'{g}:{",".join(map(str, b))}' for g, b in DEFAULT_LADDER.items()) + ')')
     command.add_argument('--repeat', type=int, default=10)
-    command.add_argument('--speed', type=float, default=3)
+    command.add_argument('--speed', type=int, choices=(1, 2, 5), default=2,
+                         help='game speed while fighting; MeitouClient accepts 1, 2 or 5 (default 2)')
     command.add_argument('--out', default='scenarios/exchange-rate')
     command.set_defaults(run=make)
     command = commands.add_parser('analyse', help='win rates and even-match ratio from run reports')

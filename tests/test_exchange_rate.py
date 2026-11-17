@@ -15,7 +15,7 @@ _SPEC.loader.exec_module(xr)
 def test_every_default_rung_validates_and_spawns_exactly_the_requested_counts():
     for guards, counts in xr.DEFAULT_LADDER.items():
         for bandits in counts:
-            value = xr.scenario(xr.ARENA_SAVE, [0, 0], guards, bandits, 10, 3)
+            value = xr.scenario(xr.ARENA_SAVE, [0, 0], guards, bandits, 10, 2)
             validate_scenario(deepcopy(value))
             spawned = {}
             for spawn in value['setup']['spawns']:
