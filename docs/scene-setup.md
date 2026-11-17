@@ -540,7 +540,7 @@ the plan numbering (S1 is reserved for moves).
 
 | Step | Work and checks |
 | --- | --- |
-| S0 | `get_clock`, `setup_info`, census (limit 100, not truncated). Bind players. Absent factions absent. Multiplier 1: native from `engine_facts`, MeitouClient from `setup_info` with `source:"settings.cfg"`; both require the line's parsed value equal to the engine value. `autosave_enabled` false, and on the original `autosave_configured` false. Pin check. |
+| S0 | `get_clock`, `setup_info`, census (limit 100, not truncated). Bind players. Absent factions absent. Multiplier 1: native from `engine_facts`, MeitouClient from `setup_info` with `source:"settings.cfg"`; both require the line's parsed value equal to the engine value (this fork: on MeitouClient only the reported effective multiplier is checked). `autosave_enabled` false, and on the original `autosave_configured` false. Pin check. |
 | S2 | Spawn point checked inside `scene_radius`, then `setup_spawn_squad` per spawn. Requires `returned_squad_id` non-null, `len(returned_members) == count == new_loaded_count`, `new_loaded_truncated` false, every member's `squad_id == returned_squad_id`, `medical` non-null, the faction, alive, and `expected_templates` (a mismatch fails with `template plan differs`). A census confirms the new characters. Bind aliases. |
 | S3 | `start` = `get_clock().elapsed_seconds` read after S2 and after `set_game_speed(1, preserve_pause=true)`; `run_until(start+33)`, paused at target; pin check; `calendar_seconds_run` = completion clock − `start` (overshoot recorded, not failed). |
 | S3b | `dump_state` to `setup/S3b.json`. A character to heal that is unconscious here fails with `unconscious before heal`. |

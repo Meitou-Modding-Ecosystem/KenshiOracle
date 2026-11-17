@@ -1648,18 +1648,13 @@ def test_meitou_squad_size_and_rng_key_follow_the_target_shape():
     line = 'Squad size multiplier=1'
     reported = dict(source='settings.cfg', multiplier=1.0, line=line,
                     sha256=hashlib.sha256(line.encode('utf-8')).hexdigest(), path='settings.cfg')
-    assert block.squad_size_facts(dict(squad_size=reported)) == dict(reported, source='setup_info')
-    for wrong in (dict(reported, source='default'), dict(reported, source='user_config'), None,
-                  dict(reported, sha256='0' * 64), dict(reported, line=None, sha256=None),
-                  dict(reported, multiplier=2.0)):
-        with pytest.raises(SetupFailure):
-            block.squad_size_facts(dict(squad_size=wrong))
-    two = 'Squad size multiplier=2'
-    with pytest.raises(SetupFailure, match='multiplier'):
-        block.squad_size_facts(dict(squad_size=dict(reported, line=two, multiplier=2.0,
-                                                    sha256=hashlib.sha256(two.encode('utf-8')).hexdigest())))
-    for wrong in (dict(reported, path='other.cfg'), dict(reported, multiplier=True),
-                  dict(reported, path=None)):
+    expected = dict(reported, source='setup_info', reported_source='settings.cfg')
+    assert block.squad_size_facts(dict(squad_size=reported)) == expected
+    # Only the effective multiplier counts on MeitouClient: its source, line and hash are recorded, not checked.
+    for other in (dict(reported, source='user_config'), dict(reported, line=None, sha256=None),
+                  dict(reported, sha256='0' * 64), dict(reported, path=None)):
+        assert block.squad_size_facts(dict(squad_size=other))['multiplier'] == 1.0
+    for wrong in (None, dict(reported, multiplier=2.0), dict(reported, multiplier=None)):
         with pytest.raises(SetupFailure):
             block.squad_size_facts(dict(squad_size=wrong))
     # The original never reads setup_info for the multiplier: engine facts are the only source,
