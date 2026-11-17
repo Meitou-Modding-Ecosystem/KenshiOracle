@@ -214,6 +214,15 @@ class _Block:
         record['verdict'] = 'passed'
         return record['reply']
 
+    def autosave_on(self, info):
+        """Whether setup_info leaves autosave possibly on (Q4).
+
+        MeitouClient's autosave_enabled is the effective state, false under the oracle whatever the option says;
+        on the original the configured option must be off too.
+        """
+        configured_off = self.target == 'meitou' or info.get('autosave_configured') is False
+        return info.get('autosave_enabled') is not False or not configured_off
+
     async def guard(self, *, mutated, mutation=False):
         """Ping and setup_info around every step (docs/scene-setup.md, Runner steps)."""
         record = await self.command('ping', call=self.session.ping)
@@ -312,7 +321,7 @@ class _Block:
         self.passed(clock)
         record = await self.command('setup_info')
         info = record['reply']
-        if info.get('autosave_enabled') is not False or info.get('autosave_configured') is not False:
+        if self.autosave_on(info):
             self.fail('autosave is enabled or unreadable; scene setup is refused')
         self.squad_size = self.squad_size_facts(info)
         self.passed(record, squad_size=self.squad_size)
