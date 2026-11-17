@@ -383,6 +383,29 @@ multiplier or effective-stat formula applies.
 | `before`, `after` | the 34 state 0.4 stats |
 | `saved`, `world_mutated`, `gate`, `world_before`, `world_after` | common |
 
+## Fights: `aggro` and `combat_log` (0.15.0)
+
+Status: added by the Meitou-Modding-Ecosystem fork. MeitouClient implements both from adapter **0.15.0**
+(patch 0014 of the [ecosystem series](../integrations/meitou-ecosystem/README.md)) and announces capabilities
+`scene_setup_aggro` and `combat_log`. The native probe implements neither.
+
+- `setup_spawn_squad` takes optional boolean `aggro` and echoes it. True gives the spawned squad the
+  attack-enemies AI goal (the F10 debug aggro), so its members engage hostile characters in reach until none
+  stands. Without it, oracle spawns stand idle and only fight back when struck.
+- `combat_log` with `action` `"start"` and `filename` (the `dump_state` filename rules, any extension) opens a
+  JSON lines file in the oracle output folder; `"stop"` closes it. Both reply `running`, `path`, `hits` and
+  `events` (lines written). A load closes a running log. It reads the engine's display-only hit feed and the
+  characters' medical state between ticks, so it does not change a run. Lines, each with `kind`, `seconds` (the
+  `get_clock` clock) and `tick`:
+
+| `kind` | Keys |
+| --- | --- |
+| `hit` | `source`, `attacker`, `attacker_faction`, `weapons` (the attacker's hip and back item records), `victim`, `victim_faction`, `part` (body part name), `damage` and `absorbed` (`cut`, `blunt`, `pierce`), `victim_was_down` |
+| `down`, `woke`, `dead`, `alive` | `character`, `faction`: a state change of a character met in a hit (`alive` is a change back from dead) |
+| `severed` | `character`, `part`: a limb that became a stump |
+
+Characters are named by their state ids (`c:<slot>.<generation>` for one the state has not named).
+
 ## Changes to existing commands
 
 | Command | Change |
@@ -484,6 +507,8 @@ With `setup`, `speed` must be above 0. Every object has
 | `offset_from_player` | `[dx,dz]` from the single `player` paused position, at that player's Y; the point must lie within `scene_radius` of `scene_center` |
 | `settle.sim_seconds` | const 1 (33 calendar seconds) |
 | `heal` | const `"all_scene_characters"`: every player character bound at S0 (those within `scene_radius`) and every spawned member |
+| `spawns[].aggro` | optional (fork, capability `scene_setup_aggro`): sent to `setup_spawn_squad` and its echo checked |
+| `combat_log` | optional boolean (fork, capability `combat_log`): see the runner step after S6 |
 | `relations` | 1..4 items, `a != b`, both directions required, integer values -100..100; no war-flag field exists. `is_enemy` is read back and recorded, never asserted by the schema (MeitouClient's hostility threshold is -30, **Verified**; the native one is **Unknown**; -60 read hostile on both, **Observed**) |
 
 The runner always executes spawn, settle, heal, relations, whatever the key
@@ -549,7 +574,9 @@ the plan numbering (S1 is reserved for moves).
 | S4 | Per relation item: `(a,b,a_to_b)` then `(b,a,b_to_a)`. Each call's changed cells are only `(a,b)` or `(b,a)`; per-call `changed_cells` is recorded in `read_back`, not judged. After the pair both directions read the requested value; `is_enemy` is recorded both ways and must be `true` when the value is -60 or lower (the hostility Observed on both engines), otherwise it is recorded only; where `at_war` is non-null, `after == before` in both directions, and a null is recorded as the limitation `war flag not observable on <target>`. |
 | S6 | Dump `setup/S6.json` and census. Relations differ from S5 only in the pair cells, and the dump reads `a_to_b` and `b_to_a` for each item. Every alias is in the census, not dead, not unconscious. Heal state rests on the S5 replies (census has no medical rows). |
 
-Then, if `scenario.speed != 1`, re-select it with `preserve_pause`.
+Then, if `scenario.speed != 1`, re-select it with `preserve_pause`. With `setup.combat_log` (this fork), the
+runner then starts `combat_log` before the origin `get_clock`, stops it after the last checkpoint and moves the
+file to `<execution>/combat-log.jsonl`; `execution.json` records the start reply and `{file, hits, events}`.
 
 ## Receipt, report and comparator
 

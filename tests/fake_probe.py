@@ -708,6 +708,8 @@ class FakeProbe(FakePlugin):
             return dict(restored=True, paused=self.state['clock']['paused'])
         if command in KIT_COMMANDS and 'scene_setup_kits' not in self.capabilities:
             raise ProbeError('unknown command: ' + command)
+        if command == 'combat_log':
+            return self._combat_log(params)
         if command in SETUP_COMMANDS:
             return self._setup(command, params)
         if command == 'save_scene_snapshot':
@@ -718,6 +720,20 @@ class FakeProbe(FakePlugin):
             return dict(count=params.get('n', 300), mean_ms=16,
                         statistics_detail=dict(mode=params.get('detail', 'aggregates')))
         raise ProbeError('not_implemented: ' + command)
+
+    def _combat_log(self, params):
+        """The fork's combat log: start writes one hit line per spawned pair seen at stop; stop closes it."""
+        if 'combat_log' not in self.capabilities:
+            raise ProbeError('not_implemented: combat_log')
+        if params.get('action') == 'stop':
+            path, self.combat_log_path = getattr(self, 'combat_log_path', None), None
+            if path is None:
+                return dict(running=False, path=None)
+            path.write_text(json.dumps(dict(kind='hit', seconds=self.state['clock']['elapsed_seconds'], tick=1))
+                            + '\n', encoding='utf-8')
+            return dict(running=False, path=str(path), hits=1, events=0)
+        self.combat_log_path = self.output_directory / params['filename']
+        return dict(running=True, path=str(self.combat_log_path), hits=0, events=0)
 
     def _world_readiness(self):
         return dict(world_present=self.world_ready, initialized=self.world_ready, game_resetting=False,
@@ -838,6 +854,8 @@ class FakeProbe(FakePlugin):
                      setup_set_relation=('source_id', 'target_id', 'value'),
                      setup_heal=('character_id',), setup_set_loadout=('character_id', 'items'),
                      setup_set_stats=('character_id', 'stats'))[command]
+        if command == 'setup_spawn_squad' and 'scene_setup_aggro' in self.capabilities:
+            names += ('aggro',)
         unknown = next((key for key in params if key not in names), None)
         if unknown is not None:
             raise self._bad('unknown parameter: ' + unknown)
@@ -877,6 +895,7 @@ class FakeProbe(FakePlugin):
             permanent = params.get('permanent', False)
             if type(permanent) is not bool:
                 raise self._bad('invalid boolean: permanent')
+            aggro = params.get('aggro', False)
             if template not in self.squad_templates and template not in self.other_templates:
                 raise SetupRefusal('not_found', 'template not found')
             if template not in self.squad_templates:
@@ -911,7 +930,7 @@ class FakeProbe(FakePlugin):
             if faction not in {row['id'] for row in self.state['factions']}:
                 self.state['factions'].append(dict(id=faction, name=factions[faction]))
             return dict(template_id=template, faction_id=faction, position=position, max_count=count,
-                        permanent=permanent, size_multiplier=1.0, squad_type='roaming',
+                        permanent=permanent, aggro=aggro, size_multiplier=1.0, squad_type='roaming',
                         returned_squad_id=squad if members else None,
                         returned_members=[dict(self._setup_row(row, bindings), dead=False, unconscious=False,
                                                medical=self._medical(row)) for row in members],

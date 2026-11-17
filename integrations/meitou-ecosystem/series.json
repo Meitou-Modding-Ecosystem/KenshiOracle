@@ -3,9 +3,9 @@
   "engine_branch": "fork",
   "engine_base": "2c7c85f98c92bfd0ffb031f3e851e6244a641279",
   "series_branch": "claude/project-thread-tu44tl",
-  "series_tip": "2d63f7616c22f1a09de01f2340bb9b3403862ae0",
+  "series_tip": "0afcf3ae9a31c42d9707bc49fe88e2498bbec7cb",
   "derived_from": "../meitou/series.json (patches 0001 to 0011, upstream base 9a19748be975fe7716aff90e3dcfd6691622e175)",
-  "adapter_version": "0.14.1",
+  "adapter_version": "0.15.0",
   "license": "GPL-3.0-or-later",
   "patches": [
     {
@@ -85,6 +85,12 @@
       "source_commit": "2d63f7616c22f1a09de01f2340bb9b3403862ae0",
       "sha256": "c91cf0fdd9a993d3fe5b6961687de0aad109e62608b2f87cab43fbfd4ffc20a8",
       "bytes": 7040
+    },
+    {
+      "file": "0014-Oracle-combat-log-and-aggressive-spawns-adapter-0.15.patch",
+      "source_commit": "0afcf3ae9a31c42d9707bc49fe88e2498bbec7cb",
+      "sha256": "095f9b1739a76789e7e0d9e60a2a8d92d3249673d33b0d7740948580b65ee258",
+      "bytes": 19059
     }
   ]
 }

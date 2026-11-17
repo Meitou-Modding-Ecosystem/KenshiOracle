@@ -57,7 +57,8 @@
         },
         "heal": {"const": "all_scene_characters"},
         "relations": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"$ref": "#/$defs/relation"}},
-        "kits": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/kit"}, "description": "Optional (probe capability scene_setup_kits): per spawned member, a loadout and/or stored stats, applied after the settle dump (S3b) and before the heal (S5)."}
+        "kits": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/kit"}, "description": "Optional (probe capability scene_setup_kits): per spawned member, a loadout and/or stored stats, applied after the settle dump (S3b) and before the heal (S5)."},
+        "combat_log": {"type": "boolean", "description": "Optional (probe capability combat_log): each repetition writes combat-log.jsonl, one line per hit and per down, wake, death and severed limb, from the end of the setup to the last checkpoint."}
       }
     },
     "kit": {
@@ -91,6 +92,7 @@
         "squad_template": {"$ref": "#/$defs/gamedata_id"},
         "count": {"type": "integer", "minimum": 1, "maximum": 16},
         "faction_id": {"$ref": "#/$defs/gamedata_id"},
+        "aggro": {"type": "boolean", "description": "Optional (probe capability scene_setup_aggro): the spawned squad gets the attack-enemies goal, so it fights hostile characters in reach until the fight ends."},
         "at": {
           "type": "object", "additionalProperties": false, "required": ["offset_from_player"],
           "properties": {"offset_from_player": {"$ref": "#/$defs/xz"}}

@@ -42,7 +42,12 @@ SIDES = {
 }
 DEFAULT_LADDER = {1: [1, 2, 3, 4], 3: [3, 5, 7, 9], 6: [6, 9, 12, 15]}
 FIGHT_X = 150
-CHECKPOINTS = [0, 10, 20, 30, 45, 60, 90, 120, 150, 180, 240]
+# Scenario times are calendar seconds; one simulated second is 33 of them (schema/scenario.schema.json).
+CALENDAR_PER_SIM_SECOND = 33
+FIGHT_SIM_SECONDS = 180
+# A checkpoint pauses the game to dump the state, so only the final standing is sampled at intervals; the combat
+# log carries every hit, down and death in between.
+CHECKPOINT_SIM_SECONDS = 60
 
 
 # ---- pin -----------------------------------------------------------------------------------------------------
@@ -122,19 +127,27 @@ def spawns(side, count):
         size = min(facts['per_spawn'], count - start)
         rows.append(dict(alias=f'{side}-{"ab"[index]}', squad_template=facts['template'], count=size,
                          faction_id=facts['faction'], at=dict(offset_from_player=[FIGHT_X + 25 * index, facts['z']]),
-                         expected_templates={facts['character']: size}))
+                         aggro=True, expected_templates={facts['character']: size}))
     return rows
 
 
-def scenario(save, center, guards, bandits, repeat, speed):
+def checkpoints(fight_seconds):
+    """Calendar times of the checkpoints: every CHECKPOINT_SIM_SECONDS and at the end of the fight."""
+    seconds = sorted(set(range(0, fight_seconds, CHECKPOINT_SIM_SECONDS)) | {fight_seconds})
+    return [value * CALENDAR_PER_SIM_SECOND for value in seconds]
+
+
+def scenario(save, center, guards, bandits, repeat, speed, fight_seconds=FIGHT_SIM_SECONDS):
     bandit, guard = SIDES['bandits'], SIDES['guards']
+    times = checkpoints(fight_seconds)
     return {
         'schema_version': 'scenario-0.2',
         'name': f'xr-b{bandits:02d}-g{guards:02d}',
         'description': (f'Exchange-rate ladder: {bandits} {bandit["label"]} ({bandit["faction"]}) against {guards} '
                         f'{guard["label"]} ({guard["faction"]}), {FIGHT_X} units from the player in {save}. '
-                        'The two factions are set to -60 both ways and to 0 towards the player; no orders are given, '
-                        'so the AI engages on sight. tools/exchange-rate/xr.py analyse reads the outcome.'),
+                        'The two factions are set to -60 both ways and to 0 towards the player; both squads spawn '
+                        f'aggressive (attack enemies) and fight for up to {fight_seconds} simulated seconds. '
+                        'tools/exchange-rate/xr.py analyse reads the outcome.'),
         'save': save, 'speed': speed, 'repeat': repeat,
         'setup': {
             'preflight': {'scene_center': center, 'scene_radius': 1500, 'squad_size_multiplier': 1,
@@ -149,9 +162,10 @@ def scenario(save, center, guards, bandits, repeat, speed):
                 {'a': bandit['faction'], 'b': PLAYER_FACTION, 'a_to_b': 0, 'b_to_a': 0},
                 {'a': guard['faction'], 'b': PLAYER_FACTION, 'a_to_b': 0, 'b_to_a': 0},
             ],
+            'combat_log': True,
         },
-        'actions': [{'at': CHECKPOINTS[-1], 'command': 'pause', 'params': {'paused': True}}],
-        'checkpoints': [{'at': at, 'name': f't{at:03d}'} for at in CHECKPOINTS],
+        'actions': [{'at': times[-1], 'command': 'pause', 'params': {'paused': True}}],
+        'checkpoints': [{'at': at, 'name': f't{at // CALENDAR_PER_SIM_SECOND:03d}'} for at in times],
     }
 
 
@@ -172,7 +186,7 @@ def make(args):
     out.mkdir(parents=True, exist_ok=True)
     for guards, counts in ladder(args.ladder).items():
         for bandits in counts:
-            value = scenario(args.save, center, guards, bandits, args.repeat, args.speed)
+            value = scenario(args.save, center, guards, bandits, args.repeat, args.speed, args.fight_seconds)
             validate_scenario(json.loads(json.dumps(value)))
             path = out / (value['name'] + '.json')
             path.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
@@ -195,6 +209,37 @@ def standing(state, members):
     return counts
 
 
+def log_decided_at(path, members, origin):
+    """Simulated seconds from origin (the fight's start clock) until one side had no member standing, or None.
+
+    Every member starts standing; "down" and "dead" lines take one down and "woke" brings one back."""
+    if not path.is_file():
+        return None
+    down = set()
+    for line in path.read_text(encoding='utf-8').splitlines():
+        row = json.loads(line)
+        character = members.get(row.get('character'))
+        if character is None:
+            continue
+        if row['kind'] in ('down', 'dead'):
+            down.add(row['character'])
+        elif row['kind'] in ('woke', 'alive'):
+            down.discard(row['character'])
+        for side in SIDES:
+            if all(identity in down for identity, owner in members.items() if owner == side):
+                return (row['seconds'] - origin) / CALENDAR_PER_SIM_SECOND
+    return None
+
+
+def log_counts(path):
+    """Hit, down, death and severed-limb line counts of a combat log."""
+    counts = defaultdict(int)
+    if path.is_file():
+        for line in path.read_text(encoding='utf-8').splitlines():
+            counts[json.loads(line)['kind']] += 1
+    return counts
+
+
 def outcome(report_dir, execution):
     alias_map = (execution.get('setup') or {}).get('alias_map') or {}
     members = {identity: side_of(alias) for alias, identity in alias_map.items() if side_of(alias) in SIDES}
@@ -206,11 +251,17 @@ def outcome(report_dir, execution):
         path = report_dir / str(execution['execution']) / (capture['name'] + '.json')
         last = standing(json.loads(path.read_text(encoding='utf-8')), members)
         if decided_at is None and min(last['bandits'], last['guards']) == 0:
-            decided_at = capture['requested_at']
+            decided_at = capture['requested_at'] / CALENDAR_PER_SIM_SECOND
     winner = ('guards' if last['bandits'] == 0 and last['guards'] > 0 else
               'bandits' if last['guards'] == 0 and last['bandits'] > 0 else None)
+    log = report_dir / str(execution['execution']) / 'combat-log.jsonl'
+    origin = (execution.get('initial_clock') or {}).get('elapsed_seconds')
+    if origin is not None:
+        decided_at = log_decided_at(log, members, origin) or decided_at
+    counts = log_counts(log)
     return dict(guards=sizes['guards'], bandits=sizes['bandits'], winner=winner, decided_at=decided_at,
-                standing_guards=last['guards'], standing_bandits=last['bandits'])
+                standing_guards=last['guards'], standing_bandits=last['bandits'],
+                hits=counts['hit'], deaths=counts['dead'], severed=counts['severed'])
 
 
 def outcomes(paths):
@@ -242,7 +293,8 @@ def analyse(args):
         rungs[(row['guards'], row['bandits'])].append(row)
     if not rungs:
         raise SystemExit('no completed xr- executions found')
-    print('guards bandits  runs  guard wins  bandit wins  undecided  guard share  mean decided at  mean standing g/b')
+    print('guards bandits  runs  guard wins  bandit wins  undecided  guard share  mean decided at  mean standing g/b'
+          '  hits/run  deaths/run')
     shares = defaultdict(list)
     for (guards, bandits), rows in sorted(rungs.items()):
         wins = sum(row['winner'] == 'guards' for row in rows)
@@ -253,8 +305,10 @@ def analyse(args):
         mean_time = f'{sum(times) / len(times):.0f}s' if times else '-'
         stand = (f'{sum(r["standing_guards"] for r in rows) / len(rows):.1f}/'
                  f'{sum(r["standing_bandits"] for r in rows) / len(rows):.1f}')
+        hits = sum(row['hits'] for row in rows) / len(rows)
+        deaths = sum(row['deaths'] for row in rows) / len(rows)
         print(f'{guards:6d} {bandits:7d} {len(rows):5d} {wins:11d} {losses:12d} {len(rows) - wins - losses:10d} '
-              f'{share:12.2f} {mean_time:>16} {stand:>18}')
+              f'{share:12.2f} {mean_time:>16} {stand:>18} {hits:9.0f} {deaths:11.1f}')
     print('\nEven match (undecided runs count half):')
     for guards, points in sorted(shares.items()):
         value = even_match(points)
@@ -282,6 +336,8 @@ def parser():
     command.add_argument('--repeat', type=int, default=10)
     command.add_argument('--speed', type=int, choices=(1, 2, 5), default=2,
                          help='game speed while fighting; MeitouClient accepts 1, 2 or 5 (default 2)')
+    command.add_argument('--fight-seconds', type=int, default=FIGHT_SIM_SECONDS,
+                         help=f'simulated seconds each fight may last (default {FIGHT_SIM_SECONDS})')
     command.add_argument('--out', default='scenarios/exchange-rate')
     command.set_defaults(run=make)
     command = commands.add_parser('analyse', help='win rates and even-match ratio from run reports')

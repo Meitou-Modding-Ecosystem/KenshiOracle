@@ -5,12 +5,13 @@ the Meitou-Modding-Ecosystem engine fork, plus patch 0012, which adds the
 [scene-setup kits](../../docs/scene-setup.md#kits-setup_set_loadout-and-setup_set_stats-012)
 and [state 0.6 equipment](../../docs/state-coverage.md#additive-extension-06)
 (adapter **0.14.0**, capability `scene_setup_kits`), and patch 0013, which loads named saves from MeitouClient's
-own save folder first (adapter **0.14.1**).
+own save folder first (adapter **0.14.1**), and patch 0014, which adds
+[aggressive spawns and the combat log](../../docs/scene-setup.md#fights-aggro-and-combat_log-0150) (adapter **0.15.0**).
 
-Apply the thirteen patches in order to
+Apply the fourteen patches in order to
 [Meitou-Modding-Ecosystem/MeitouClient](https://github.com/Meitou-Modding-Ecosystem/MeitouClient)
 branch `fork` at `2c7c85f98c92bfd0ffb031f3e851e6244a641279`; the result is
-the engine branch `claude/project-thread-tu44tl` at `2d63f761`.
+the engine branch `claude/project-thread-tu44tl` at `0afcf3ae`.
 [series.json](series.json) records each patch's source commit, SHA-256 and
 size.
 
@@ -31,6 +32,8 @@ git -C <engine> am <this directory>\00*.patch
   1006 passes, 0 failures and 7 skips.
 - **Verified** on 2026-11-17 (same toolchain): with patch 0013 the solution builds and the quick suite has
   1009 passes, 0 failures and 8 skips.
+- **Verified** on 2026-11-17 (same toolchain): with patch 0014 the solution builds with 0 warnings and the quick
+  suite has 1009 passes, 0 failures and 8 skips.
 - **Observed** on 2026-11-17 (Windows, adapter 0.14.0): the exchange-rate `pin` loaded a save, ran the
   settle and wrote its profile entry.
 
@@ -53,6 +56,13 @@ git -C <engine> am <this directory>\00*.patch
   order. `save_root` keeps its old value.
 - The runner reads a save's identities from the first `save_roots` entry that holds it, and falls back to
   `save_root` when the adapter has no `save_roots`.
+
+## Patch 0014
+
+- `setup_spawn_squad` takes `aggro`: the squad gets the attack-enemies goal (`Squad.DebugAggro`).
+- `combat_log` start/stop (`OracleCombatLog`): one JSON line per resolved hit and per down, wake, death and
+  severed limb, read from `World.CombatHitFeed` between ticks. Refused when a code mod already reads that feed.
+- Ping: adapter version 0.15.0, capabilities add `scene_setup_aggro` and `combat_log`.
 
 The license terms are those of the upstream series ([LICENSE](LICENSE),
 [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)).
