@@ -1,0 +1,59 @@
+name: CI
+'on':
+  pull_request:
+    branches:
+    - beta
+    - main
+    - release
+  push:
+    branches:
+    - beta
+    - main
+    - release
+permissions:
+  contents: read
+jobs:
+  build:
+    name: build / build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      with:
+        python-version: '3.12'
+    - run: python -m pip install -r requirements.txt
+    - run: python -m pytest tests
+  development-readiness:
+    name: Development readiness
+    if: always()
+    needs:
+    - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Require prerequisite checks
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+        TARGET: ${{ github.base_ref || github.ref_name }}
+      run: "python - <<'PYCODE'\nimport json, os\nresults = json.loads(os.environ['RESULTS'])\nrequired = list(results)\n\
+        if not required or any(results[key]['result'] != 'success' for key in required):\n    raise SystemExit('A prerequisite\
+        \ failed, was cancelled, or was skipped')\nPYCODE\n"
+  release-readiness:
+    name: Release readiness
+    if: always()
+    needs:
+    - development-readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Require prerequisite checks
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+        TARGET: ${{ github.base_ref || github.ref_name }}
+      run: "python - <<'PYCODE'\nimport json, os\nresults = json.loads(os.environ['RESULTS'])\ntarget = os.environ['TARGET']\n\
+        required = list(results) if target == 'release' else ['development-readiness']\nif not required or any(results[key]['result']\
+        \ != 'success' for key in required):\n    raise SystemExit('A prerequisite failed, was cancelled, or was skipped')\n\
+        PYCODE\n"
